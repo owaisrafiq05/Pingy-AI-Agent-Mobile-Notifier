@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1
+
+- Notifications include project name plus the chat's initial (and latest) user message
+- Capture prompts via `beforeSubmitPrompt` and fall back to `transcript_path` when available
+
+## 0.2.0
+
+- One-time global setup via `~/.cursor/hooks.json` — all projects notify after a single install + phone pairing
+- Setup merges into existing user hooks instead of overwriting them
+- Pairing / test / watcher use the global config (legacy per-project config still works as fallback)
+
 ## 0.1.3
 
 - Humanize notification titles and body copy (finish / error / aborted / needs you / test)

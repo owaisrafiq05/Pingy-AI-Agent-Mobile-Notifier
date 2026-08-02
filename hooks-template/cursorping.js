@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * CursorPing hook entrypoint.
- * Cursor spawns: node .cursor/hooks/cursorping.js <eventName>
+ * Cursor spawns: node ./hooks/cursorping.js <eventName>
  * Payload JSON is piped on stdin.
  *
  * Observe-only: always exit 0 and never block the agent.
@@ -9,6 +9,10 @@
 const path = require('path');
 const { sendNotification } = require('./lib/notifier');
 const { stopMessage, needsYouMessage } = require('./lib/messages');
+const {
+  rememberPrompt,
+  resolveChatContext,
+} = require('./lib/context');
 const {
   markPending,
   clearPending,
@@ -50,12 +54,16 @@ function readStdin() {
   });
 }
 
-async function notifyStale(config, project) {
+async function notifyStale(config, project, payload) {
   const stale = findStalePending(config.pendingTimeoutMs ?? 15000);
   for (const conv of stale) {
+    const chat = resolveChatContext({
+      conversation_id: conv,
+      transcript_path: payload?.transcript_path,
+    });
     await sendNotification(
       config.ntfyTopic,
-      needsYouMessage(project),
+      needsYouMessage(project, chat),
       config.serverUrl
     );
     markNotified(conv);
@@ -78,9 +86,15 @@ async function main() {
 
   try {
     switch (eventName) {
+      case 'beforeSubmitPrompt': {
+        // Capture what the user asked so stop notifications have context
+        rememberPrompt(payload.conversation_id, payload.prompt);
+        process.stdout.write(JSON.stringify({ continue: true }));
+        break;
+      }
+
       case 'beforeShellExecution':
         markPending(payload.conversation_id);
-        // Allow everything - observe only
         process.stdout.write(JSON.stringify({ permission: 'allow' }));
         break;
 
@@ -90,9 +104,10 @@ async function main() {
 
       case 'stop': {
         clearPending(payload.conversation_id);
+        const chat = resolveChatContext(payload);
         await sendNotification(
           config.ntfyTopic,
-          stopMessage(payload.status, project),
+          stopMessage(payload.status, project, chat),
           config.serverUrl
         );
         break;
@@ -102,8 +117,7 @@ async function main() {
         break;
     }
 
-    // Option A: piggyback stale-pending checks on every hook invocation
-    await notifyStale(config, project);
+    await notifyStale(config, project, payload);
   } catch (e) {
     console.error('cursorping: unexpected error', e);
   }

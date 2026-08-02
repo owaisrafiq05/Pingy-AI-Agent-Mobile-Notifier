@@ -6,8 +6,9 @@ import {
   getServerUrl,
   getWatcherIntervalMs,
   getWorkspaceRoot,
+  globalPendingStatePath,
   pendingStatePath,
-  readWorkspaceConfig,
+  readActiveConfig,
 } from './config';
 import { showPairingQr } from './pairing';
 import { runSetupWizard } from './setupWizard';
@@ -18,23 +19,17 @@ let statusBar: StatusBar | undefined;
 let watcherTimer: ReturnType<typeof setInterval> | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // Register commands first so palette entries always resolve even if later init fails
   context.subscriptions.push(
     vscode.commands.registerCommand('cursorping.setup', async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        vscode.window.showErrorMessage('CursorPing: open a workspace folder first.');
-        return;
-      }
       try {
-        const topic = await runSetupWizard(context, workspaceRoot);
+        const topic = await runSetupWizard(context);
         statusBar?.setReady(topic);
         const showQr = await vscode.window.showInformationMessage(
-          `CursorPing set up. Subscribe to topic "${topic}" in the ntfy app.`,
-          'Show QR Code'
+          `CursorPing is set up for all projects. Subscribe to "${topic}" in the ntfy app (once).`,
+          'Show Pairing'
         );
-        if (showQr === 'Show QR Code') {
-          await showPairingQr(workspaceRoot);
+        if (showQr === 'Show Pairing') {
+          await showPairingQr();
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -46,26 +41,23 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('cursorping.sendTest', async () => {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        vscode.window.showErrorMessage('CursorPing: open a workspace folder first.');
-        return;
-      }
-      let config = readWorkspaceConfig(workspaceRoot);
+      let config = readActiveConfig(getWorkspaceRoot());
       if (!config?.ntfyTopic) {
         const choice = await vscode.window.showWarningMessage(
-          'CursorPing is not set up yet.',
+          'CursorPing is not set up yet. Setup once — it covers every project.',
           'Run Setup'
         );
         if (choice === 'Run Setup') {
           await vscode.commands.executeCommand('cursorping.setup');
-          config = readWorkspaceConfig(workspaceRoot);
+          config = readActiveConfig(getWorkspaceRoot());
         }
         if (!config?.ntfyTopic) {
           return;
         }
       }
-      const project = path.basename(workspaceRoot);
+      const project = getWorkspaceRoot()
+        ? path.basename(getWorkspaceRoot()!)
+        : 'your projects';
       try {
         await sendNtfy(
           config.ntfyTopic,
@@ -81,7 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('cursorping.showPairingQr', async () => {
-      await showPairingQr(getWorkspaceRoot());
+      await showPairingQr();
     })
   );
 
@@ -89,12 +81,9 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar = new StatusBar();
     context.subscriptions.push(statusBar);
 
-    const root = getWorkspaceRoot();
-    if (root) {
-      const cfg = readWorkspaceConfig(root);
-      if (cfg?.ntfyTopic) {
-        statusBar.setReady(cfg.ntfyTopic);
-      }
+    const cfg = readActiveConfig(getWorkspaceRoot());
+    if (cfg?.ntfyTopic) {
+      statusBar.setReady(cfg.ntfyTopic);
     }
 
     startPendingWatcher(context);
@@ -121,7 +110,6 @@ export function deactivate(): void {
   }
 }
 
-/** Option B: extension-side interval polls the same pending.json state file. */
 function startPendingWatcher(context: vscode.ExtensionContext): void {
   const interval = getWatcherIntervalMs();
   watcherTimer = setInterval(() => {
@@ -130,61 +118,63 @@ function startPendingWatcher(context: vscode.ExtensionContext): void {
 }
 
 async function checkStalePending(context: vscode.ExtensionContext): Promise<void> {
-  const workspaceRoot = getWorkspaceRoot();
-  if (!workspaceRoot) {
-    return;
-  }
-
-  const config = readWorkspaceConfig(workspaceRoot);
+  const config = readActiveConfig(getWorkspaceRoot());
   if (!config?.ntfyTopic) {
     return;
   }
 
-  const stateFile = pendingStatePath(workspaceRoot);
-  if (!fs.existsSync(stateFile)) {
-    return;
-  }
-
-  let state: Record<string, { ts?: number; notified?: boolean }>;
-  try {
-    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-  } catch {
-    return;
+  const candidates = [globalPendingStatePath()];
+  const root = getWorkspaceRoot();
+  if (root) {
+    candidates.push(pendingStatePath(root));
   }
 
   const timeout = config.pendingTimeoutMs ?? getPendingTimeoutMs();
   const now = Date.now();
-  const project = path.basename(workspaceRoot);
-  let changed = false;
+  const project = root ? path.basename(root) : 'your project';
 
-  for (const [id, entry] of Object.entries(state)) {
-    if (!entry || typeof entry.ts !== 'number' || entry.notified) {
-      continue;
-    }
-    if (now - entry.ts < timeout) {
+  for (const stateFile of candidates) {
+    if (!fs.existsSync(stateFile)) {
       continue;
     }
 
+    let state: Record<string, { ts?: number; notified?: boolean }>;
     try {
-      await sendNtfy(
-        config.ntfyTopic,
-        needsYouMessage(project),
-        config.serverUrl || getServerUrl()
-      );
-      statusBar?.setNeedsYou();
-      delete state[id];
-      changed = true;
-      await context.globalState.update('cursorping.lastStatus', 'needs_approval');
-    } catch (e) {
-      console.error('cursorping watcher: notify failed', e);
+      state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    } catch {
+      continue;
     }
-  }
 
-  if (changed) {
-    try {
-      fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
-    } catch (e) {
-      console.error('cursorping watcher: failed to write state', e);
+    let changed = false;
+    for (const [id, entry] of Object.entries(state)) {
+      if (!entry || typeof entry.ts !== 'number' || entry.notified) {
+        continue;
+      }
+      if (now - entry.ts < timeout) {
+        continue;
+      }
+
+      try {
+        await sendNtfy(
+          config.ntfyTopic,
+          needsYouMessage(project),
+          config.serverUrl || getServerUrl()
+        );
+        statusBar?.setNeedsYou();
+        delete state[id];
+        changed = true;
+        await context.globalState.update('cursorping.lastStatus', 'needs_approval');
+      } catch (e) {
+        console.error('cursorping watcher: notify failed', e);
+      }
+    }
+
+    if (changed) {
+      try {
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
+      } catch (e) {
+        console.error('cursorping watcher: failed to write state', e);
+      }
     }
   }
 }

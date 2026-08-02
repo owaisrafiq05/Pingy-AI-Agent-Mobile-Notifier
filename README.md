@@ -6,16 +6,14 @@ Built on Cursor's official [Hooks API](https://cursor.com/docs/agent/hooks) (`st
 
 ## Why CursorPing
 
-Existing tools mostly notify on `stop`. CursorPing adds:
-
 1. **Needs-you alerts** — timing heuristic on `beforeShellExecution` when no follow-up arrives within a configurable window
-2. **Real extension UX** — setup wizard, QR pairing, status bar, test notification (not just a manual `hooks.json` edit)
-3. **Session context** — titles include the project name and distinguish `completed` / `error` / `aborted`
+2. **One-time setup** — install the extension once, pair your phone once; **every project** notifies
+3. **Session context** — titles include the project name, and the body includes the chat's initial (and latest) user message when available
 
 ## Requirements
 
 - Cursor IDE with Hooks support (v1.7+)
-- Node.js on your PATH (hooks run `node .cursor/hooks/cursorping.js …`)
+- Node.js on your PATH (hooks run `node ./hooks/cursorping.js …`)
 - [ntfy](https://ntfy.sh) app on your phone (iOS / Android), or a self-hosted ntfy server
 
 ## Install
@@ -25,44 +23,40 @@ Existing tools mostly notify on `stop`. CursorPing adds:
 ```bash
 npm install
 npm run compile
-npx @vscode/vsce package --no-dependencies
+npm run package
 ```
 
-Install the generated `.vsix` in Cursor: **Extensions → … → Install from VSIX…**
+In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.2.0.vsix`.
 
-### After install
+### After install (do this once)
 
-1. Open a project folder
-2. Command Palette → **CursorPing: Run Setup**
-3. Command Palette → **CursorPing: Show Pairing QR Code** (or tap the prompt after setup)
-4. Scan the QR in the ntfy app (or subscribe to the shown topic)
-5. Optionally run **CursorPing: Send Test Notification**
+1. Command Palette → **CursorPing: Run Setup (once for all projects)**
+2. **CursorPing: Show Pairing QR Code** — subscribe to the topic in the ntfy app (iOS: paste the topic)
+3. Optionally **CursorPing: Send Test Notification**
 
-Setup writes project-level:
+That’s it. Open any other project and run the agent — you should get pings without setting up again.
 
-- `.cursor/hooks.json`
-- `.cursor/hooks/cursorping.js` (+ `lib/`)
-- `.cursor/hooks/cursorping.config.json` (topic + server URL)
+### What setup writes (global)
 
-Commit `hooks.json` and the hook scripts if you want the team to share them. **Do not commit** `cursorping.config.json` if the topic should stay private to you (or rotate the topic). Prefer adding `.cursor/hooks/cursorping.config.json` and `.cursor/hooks/state/` to `.gitignore` when sharing.
+Under your user Cursor folder (`~/.cursor` / `%USERPROFILE%\.cursor`):
+
+- `hooks.json` — merges CursorPing hooks (keeps your other hooks)
+- `hooks/cursorping.js` (+ `lib/`)
+- `hooks/cursorping.config.json` — topic + server URL (private to you)
 
 ## How it works
-
-Two decoupled pieces:
 
 | Piece | Role |
 |--------|------|
 | **Hook bridge** | Cursor spawns a short-lived Node process on agent events; it posts to ntfy |
-| **Extension** | Writes hook files, QR pairing, status bar, test ping, and a background pending watcher |
-
-The notification pipeline does **not** depend on the extension host receiving hook events (it can't). The extension is the setup/UX layer; the hook scripts do the actual notify.
+| **Extension** | One-time global install, QR pairing, status bar, test ping, pending watcher |
 
 ### Needs-approval detection
 
-1. **Option A** — each hook invocation checks `.cursor/hooks/state/pending.json` for stale entries
+1. **Option A** — each hook invocation checks pending state for stale entries
 2. **Option B** — while the extension is active, it polls the same file every few seconds
 
-A slow legitimate shell command can still produce a false "needs you" alert. Tune `cursorping.pendingTimeoutMs` (default 15000).
+Tune `cursorping.pendingTimeoutMs` (default 15000) if slow shells false-trigger “needs you”.
 
 ## Settings
 
@@ -72,16 +66,12 @@ A slow legitimate shell command can still produce a false "needs you" alert. Tun
 | `cursorping.pendingTimeoutMs` | `15000` | Stale pending threshold |
 | `cursorping.watcherIntervalMs` | `5000` | Extension poll interval |
 
-## Manual / hook-only smoke test
+## Manual smoke test
 
 ```bash
-# after Run Setup (or copy hooks-template manually and add cursorping.config.json)
-echo {"conversation_id":"t","status":"completed","workspace_roots":["D:/foo/checkout-api"]} | node .cursor/hooks/cursorping.js stop
+# after Run Setup (global install)
+echo {"conversation_id":"t","status":"completed","workspace_roots":["D:/foo/checkout-api"]} | node %USERPROFILE%\.cursor\hooks\cursorping.js stop
 ```
-
-## Global hooks (optional)
-
-Project-level `.cursor/hooks.json` is what Setup writes. For every workspace, you can instead use user-level `~/.cursor/hooks.json` — see [Cursor hooks docs](https://cursor.com/docs/agent/hooks). CursorPing does not install that path automatically in v0.1.
 
 ## Limitations
 

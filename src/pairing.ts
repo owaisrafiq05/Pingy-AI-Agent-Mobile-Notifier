@@ -1,18 +1,11 @@
 import * as vscode from 'vscode';
-import { getServerUrl, readWorkspaceConfig, subscribeUrl } from './config';
+import { getServerUrl, readActiveConfig, subscribeUrl } from './config';
 
-export async function showPairingQr(
-  workspaceRoot: string | undefined
-): Promise<void> {
-  if (!workspaceRoot) {
-    vscode.window.showErrorMessage('CursorPing: open a workspace folder first.');
-    return;
-  }
-
-  const config = readWorkspaceConfig(workspaceRoot);
+export async function showPairingQr(): Promise<void> {
+  const config = readActiveConfig();
   if (!config?.ntfyTopic) {
     const choice = await vscode.window.showWarningMessage(
-      'CursorPing is not set up in this workspace yet.',
+      'CursorPing is not set up yet. Run setup once — it applies to all projects.',
       'Run Setup'
     );
     if (choice === 'Run Setup') {
@@ -27,7 +20,6 @@ export async function showPairingQr(
   let dataUrl: string | undefined;
   let qrError: string | undefined;
   try {
-    // CommonJS require — reliable in the VS Code/Cursor extension host
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const QRCode = require('qrcode') as typeof import('qrcode');
     dataUrl = await QRCode.toDataURL(url, { width: 280, margin: 2 });
@@ -79,14 +71,13 @@ export async function showPairingQr(
 </head>
 <body>
   <h1>CursorPing</h1>
-  <p>Scan this QR with the ntfy app (or subscribe to the topic below) to receive agent notifications.</p>
+  <p>One-time pairing for <strong>all</strong> Cursor projects. Subscribe once in the ntfy app (iOS: paste the topic).</p>
   ${qrBlock}
   <div><code>${escapeHtml(config.ntfyTopic)}</code></div>
   <p class="hint">${escapeHtml(url)}</p>
 </body>
 </html>`;
 
-  // Also offer clipboard shortcuts
   const pick = await vscode.window.showInformationMessage(
     `CursorPing topic: ${config.ntfyTopic}`,
     'Copy Topic',

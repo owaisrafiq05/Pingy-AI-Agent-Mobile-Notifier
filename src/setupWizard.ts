@@ -3,19 +3,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import {
-  configPath,
   getPendingTimeoutMs,
   getServerUrl,
-  hooksDir,
-  readWorkspaceConfig,
+  globalConfigPath,
+  globalHooksDir,
+  globalHooksJsonPath,
+  readGlobalConfig,
 } from './config';
+
+const CURSORPING_CMD = 'cursorping.js';
 
 function copyRecursive(src: string, dest: string): void {
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
     fs.mkdirSync(dest, { recursive: true });
     for (const entry of fs.readdirSync(src)) {
-      // Do not copy generated config or runtime state from the template tree
       if (entry === 'cursorping.config.json' || entry === 'state') {
         continue;
       }
@@ -27,10 +29,60 @@ function copyRecursive(src: string, dest: string): void {
   fs.copyFileSync(src, dest);
 }
 
-export async function runSetupWizard(
-  context: vscode.ExtensionContext,
-  workspaceRoot: string
-): Promise<string> {
+function isCursorPingCommand(command: string | undefined): boolean {
+  return typeof command === 'string' && command.includes(CURSORPING_CMD);
+}
+
+/**
+ * Merge CursorPing hooks into ~/.cursor/hooks.json without wiping other user hooks.
+ */
+function mergeUserHooksJson(hooksJsonPath: string): void {
+  const cursorPingHooks: Record<string, Array<{ command: string }>> = {
+    beforeSubmitPrompt: [
+      { command: 'node ./hooks/cursorping.js beforeSubmitPrompt' },
+    ],
+    beforeShellExecution: [
+      { command: 'node ./hooks/cursorping.js beforeShellExecution' },
+    ],
+    afterFileEdit: [{ command: 'node ./hooks/cursorping.js afterFileEdit' }],
+    stop: [{ command: 'node ./hooks/cursorping.js stop' }],
+  };
+
+  let existing: { version?: number; hooks?: Record<string, Array<{ command?: string }>> } =
+    { version: 1, hooks: {} };
+
+  if (fs.existsSync(hooksJsonPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(hooksJsonPath, 'utf8'));
+      if (!existing.hooks || typeof existing.hooks !== 'object') {
+        existing.hooks = {};
+      }
+    } catch {
+      const backup = `${hooksJsonPath}.bak-${Date.now()}`;
+      fs.copyFileSync(hooksJsonPath, backup);
+      existing = { version: 1, hooks: {} };
+    }
+  }
+
+  const hooks = { ...existing.hooks };
+
+  for (const [eventName, entries] of Object.entries(cursorPingHooks)) {
+    const prior = Array.isArray(hooks[eventName]) ? hooks[eventName]! : [];
+    const kept = prior.filter((h) => !isCursorPingCommand(h.command));
+    hooks[eventName] = [...kept, ...entries];
+  }
+
+  const next = {
+    version: existing.version ?? 1,
+    hooks,
+  };
+  fs.writeFileSync(hooksJsonPath, JSON.stringify(next, null, 2), 'utf8');
+}
+
+/**
+ * One-time global setup: installs hooks under ~/.cursor so every project notifies.
+ */
+export async function runSetupWizard(context: vscode.ExtensionContext): Promise<string> {
   const templateRoot = path.join(context.extensionPath, 'hooks-template');
   if (!fs.existsSync(templateRoot)) {
     throw new Error(
@@ -38,11 +90,11 @@ export async function runSetupWizard(
     );
   }
 
-  const existing = readWorkspaceConfig(workspaceRoot);
+  const existing = readGlobalConfig();
   const topic =
     existing?.ntfyTopic || `cursorping-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
 
-  const destHooks = hooksDir(workspaceRoot);
+  const destHooks = globalHooksDir();
   fs.mkdirSync(destHooks, { recursive: true });
   fs.mkdirSync(path.join(destHooks, 'state'), { recursive: true });
 
@@ -52,26 +104,15 @@ export async function runSetupWizard(
   const pendingTimeoutMs = getPendingTimeoutMs();
 
   fs.writeFileSync(
-    configPath(workspaceRoot),
+    globalConfigPath(),
     JSON.stringify({ ntfyTopic: topic, serverUrl, pendingTimeoutMs }, null, 2),
     'utf8'
   );
 
-  const hooksJsonPath = path.join(workspaceRoot, '.cursor', 'hooks.json');
-  const hooksConfig = {
-    version: 1,
-    hooks: {
-      beforeShellExecution: [
-        { command: 'node .cursor/hooks/cursorping.js beforeShellExecution' },
-      ],
-      afterFileEdit: [{ command: 'node .cursor/hooks/cursorping.js afterFileEdit' }],
-      stop: [{ command: 'node .cursor/hooks/cursorping.js stop' }],
-    },
-  };
-  fs.writeFileSync(hooksJsonPath, JSON.stringify(hooksConfig, null, 2), 'utf8');
+  mergeUserHooksJson(globalHooksJsonPath());
 
   await context.globalState.update('cursorping.lastTopic', topic);
-  await context.globalState.update('cursorping.lastWorkspace', workspaceRoot);
+  await context.globalState.update('cursorping.setupMode', 'global');
 
   return topic;
 }
