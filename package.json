@@ -1,0 +1,85 @@
+{
+  "name": "cursorping",
+  "displayName": "CursorPing",
+  "description": "Push a mobile notification when the Cursor Agent finishes or needs approval",
+  "version": "0.1.2",
+  "publisher": "cursorping",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "cursor",
+    "agent",
+    "ntfy",
+    "notifications",
+    "hooks"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:cursorping.setup",
+    "onCommand:cursorping.sendTest",
+    "onCommand:cursorping.showPairingQr"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorping.setup",
+        "title": "CursorPing: Run Setup"
+      },
+      {
+        "command": "cursorping.sendTest",
+        "title": "CursorPing: Send Test Notification"
+      },
+      {
+        "command": "cursorping.showPairingQr",
+        "title": "CursorPing: Show Pairing QR Code"
+      }
+    ],
+    "configuration": {
+      "title": "CursorPing",
+      "properties": {
+        "cursorping.serverUrl": {
+          "type": "string",
+          "default": "https://ntfy.sh",
+          "description": "ntfy server base URL (use your self-hosted instance if preferred)"
+        },
+        "cursorping.pendingTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "description": "Milliseconds before a beforeShellExecution without follow-up is treated as needing approval"
+        },
+        "cursorping.watcherIntervalMs": {
+          "type": "number",
+          "default": 5000,
+          "description": "How often the extension polls pending-approval state (Option B)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cursorping/cursorping"
+  },
+  "icon": "media/icon.png"
+}

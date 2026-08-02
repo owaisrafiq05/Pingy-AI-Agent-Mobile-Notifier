@@ -1,0 +1,12 @@
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+tsconfig.json
+**/*.ts
+!**/*.d.ts
+**/*.map
+cursor-ping-technical-spec.md
+*.vsix
+.cursor/**
+out/**/*.map

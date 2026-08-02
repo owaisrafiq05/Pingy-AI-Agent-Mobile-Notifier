@@ -1,0 +1,7 @@
+.vscode-test/
+node_modules/
+out/
+*.vsix
+.cursor/hooks/state/
+*.log
+.DS_Store
