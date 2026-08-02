@@ -8,6 +8,7 @@
  */
 const path = require('path');
 const { sendNotification } = require('./lib/notifier');
+const { stopMessage, needsYouMessage } = require('./lib/messages');
 const {
   markPending,
   clearPending,
@@ -54,12 +55,7 @@ async function notifyStale(config, project) {
   for (const conv of stale) {
     await sendNotification(
       config.ntfyTopic,
-      {
-        title: `Cursor needs you - ${project}`,
-        message: 'Waiting on a command approval.',
-        priority: 'urgent',
-        tags: ['warning'],
-      },
+      needsYouMessage(project),
       config.serverUrl
     );
     markNotified(conv);
@@ -84,7 +80,7 @@ async function main() {
     switch (eventName) {
       case 'beforeShellExecution':
         markPending(payload.conversation_id);
-        // Allow everything — observe only
+        // Allow everything - observe only
         process.stdout.write(JSON.stringify({ permission: 'allow' }));
         break;
 
@@ -94,28 +90,11 @@ async function main() {
 
       case 'stop': {
         clearPending(payload.conversation_id);
-        const messages = {
-          completed: {
-            title: `Cursor finished - ${project}`,
-            message: `Status: completed`,
-            priority: 'default',
-            tags: ['white_check_mark'],
-          },
-          error: {
-            title: `Cursor hit an error - ${project}`,
-            message: 'Session ended with an error.',
-            priority: 'high',
-            tags: ['x'],
-          },
-          aborted: {
-            title: `Cursor session aborted - ${project}`,
-            message: 'You (or something) stopped the session.',
-            priority: 'low',
-            tags: ['no_entry_sign'],
-          },
-        };
-        const m = messages[payload.status] ?? messages.completed;
-        await sendNotification(config.ntfyTopic, m, config.serverUrl);
+        await sendNotification(
+          config.ntfyTopic,
+          stopMessage(payload.status, project),
+          config.serverUrl
+        );
         break;
       }
 

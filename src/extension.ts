@@ -12,6 +12,7 @@ import {
 import { showPairingQr } from './pairing';
 import { runSetupWizard } from './setupWizard';
 import { StatusBar } from './statusBar';
+import { needsYouMessage, testMessage } from './messages';
 
 let statusBar: StatusBar | undefined;
 let watcherTimer: ReturnType<typeof setInterval> | undefined;
@@ -68,12 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await sendNtfy(
           config.ntfyTopic,
-          {
-            title: `CursorPing test - ${project}`,
-            message: 'If you see this, pairing works.',
-            priority: 'default',
-            tags: ['white_check_mark'],
-          },
+          testMessage(project),
           config.serverUrl || getServerUrl()
         );
         vscode.window.showInformationMessage('CursorPing: test notification sent.');
@@ -172,12 +168,7 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
     try {
       await sendNtfy(
         config.ntfyTopic,
-        {
-          title: `Cursor needs you - ${project}`,
-          message: 'Waiting on a command approval.',
-          priority: 'urgent',
-          tags: ['warning'],
-        },
+        needsYouMessage(project),
         config.serverUrl || getServerUrl()
       );
       statusBar?.setNeedsYou();

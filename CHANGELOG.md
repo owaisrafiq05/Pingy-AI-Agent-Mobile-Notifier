@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Humanize notification titles and body copy (finish / error / aborted / needs you / test)
+
 ## 0.1.2
 
 - Fix VSIX packaging so `qrcode` JS is included (QR was falling back to Copy URL only)
