@@ -10,3 +10,5 @@ cursor-ping-technical-spec.md
 *.vsix
 .cursor/**
 out/**/*.map
+media/icon-full.png
+ChatGPT*.png

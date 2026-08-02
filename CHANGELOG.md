@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Replace extension icon with CursorPing brand logo
+
 ## 0.2.1
 
 - Notifications include project name plus the chat's initial (and latest) user message
