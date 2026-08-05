@@ -1,8 +1,8 @@
 {
-  "name": "cursorping",
+  "name": "pingy",
   "displayName": "Pingy",
   "description": "Pingy — Get notified when your AI coding agent needs you. Your AI coding agent's little notification buddy.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",

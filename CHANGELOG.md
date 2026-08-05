@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Extension ID renamed from `OwaisRafiq.cursorping` to `OwaisRafiq.pingy` (Open VSX / Marketplace URL slug)
+
 ## 0.3.3
 
 - Product branding: **Pingy — Get notified when your AI coding agent needs you**
