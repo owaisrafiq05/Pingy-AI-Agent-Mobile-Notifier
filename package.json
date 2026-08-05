@@ -1,9 +1,13 @@
 {
   "name": "cursorping",
-  "displayName": "CursorPing",
-  "description": "Push a mobile notification when the Cursor Agent finishes or is waiting for your permission",
-  "version": "0.3.0",
+  "displayName": "Pingy",
+  "description": "Pingy — mobile pings when your Cursor agent finishes, waits for you, or hits an error. Created by Owais Rafiq.",
+  "version": "0.3.2",
   "publisher": "cursorping",
+  "author": {
+    "name": "Owais Rafiq",
+    "url": "https://github.com/owaisrafiq05"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -16,7 +20,8 @@
     "agent",
     "ntfy",
     "notifications",
-    "hooks"
+    "hooks",
+    "pingy"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -29,19 +34,19 @@
     "commands": [
       {
         "command": "cursorping.setup",
-        "title": "CursorPing: Run Setup (once for all projects)"
+        "title": "Pingy: Run Setup (once for all projects)"
       },
       {
         "command": "cursorping.sendTest",
-        "title": "CursorPing: Send Test Notification"
+        "title": "Pingy: Send Test Notification"
       },
       {
         "command": "cursorping.showPairingQr",
-        "title": "CursorPing: Show Pairing QR Code"
+        "title": "Pingy: Show Pairing QR Code"
       }
     ],
     "configuration": {
-      "title": "CursorPing",
+      "title": "Pingy",
       "properties": {
         "cursorping.serverUrl": {
           "type": "string",
@@ -83,9 +88,13 @@
     "@vscode/vsce": "^3.2.0",
     "typescript": "^5.3.3"
   },
+  "homepage": "https://github.com/owaisrafiq05",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cursorping/cursorping"
+    "url": "https://github.com/owaisrafiq05"
+  },
+  "bugs": {
+    "url": "https://github.com/owaisrafiq05"
   },
   "icon": "media/icon.png"
 }

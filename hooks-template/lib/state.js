@@ -75,6 +75,7 @@ function markPending(conversationId, meta = {}) {
     toolName: meta.toolName ?? null,
     command: meta.command ?? null,
     toolUseId: meta.toolUseId ?? null,
+    project: meta.project ?? null,
   };
   writeState(state);
 }

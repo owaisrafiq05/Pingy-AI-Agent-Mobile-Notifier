@@ -158,6 +158,7 @@ function gateMeta(eventName, payload) {
     toolName: payload.tool_name ?? (payload.command ? 'Shell' : null),
     command: typeof command === 'string' ? command : null,
     toolUseId: payload.tool_use_id ?? null,
+    project: projectName(payload.workspace_roots),
   };
 }
 

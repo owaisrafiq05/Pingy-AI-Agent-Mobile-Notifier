@@ -5,7 +5,7 @@ export async function showPairingQr(): Promise<void> {
   const config = readActiveConfig();
   if (!config?.ntfyTopic) {
     const choice = await vscode.window.showWarningMessage(
-      'CursorPing is not set up yet. Run setup once — it applies to all projects.',
+      'Pingy is not set up yet. Run setup once — it applies to all projects.',
       'Run Setup'
     );
     if (choice === 'Run Setup') {
@@ -30,7 +30,7 @@ export async function showPairingQr(): Promise<void> {
 
   const panel = vscode.window.createWebviewPanel(
     'cursorpingPairing',
-    'CursorPing Pairing',
+    'Pingy Pairing',
     vscode.ViewColumn.Beside,
     { enableScripts: false }
   );
@@ -44,7 +44,7 @@ export async function showPairingQr(): Promise<void> {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CursorPing Pairing</title>
+  <title>Pingy Pairing</title>
   <style>
     body {
       font-family: var(--vscode-font-family);
@@ -70,7 +70,7 @@ export async function showPairingQr(): Promise<void> {
   </style>
 </head>
 <body>
-  <h1>CursorPing</h1>
+  <h1>Pingy</h1>
   <p>One-time pairing for <strong>all</strong> Cursor projects. Subscribe once in the ntfy app (iOS: paste the topic).</p>
   ${qrBlock}
   <div><code>${escapeHtml(config.ntfyTopic)}</code></div>
@@ -79,7 +79,7 @@ export async function showPairingQr(): Promise<void> {
 </html>`;
 
   const pick = await vscode.window.showInformationMessage(
-    `CursorPing topic: ${config.ntfyTopic}`,
+    `Pingy topic: ${config.ntfyTopic}`,
     'Copy Topic',
     'Copy URL'
   );

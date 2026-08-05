@@ -1,14 +1,30 @@
-# CursorPing
+# Pingy
 
-Push a mobile notification when the **Cursor Agent** finishes — or when it stops and waits for your permission.
+Push a mobile notification when the **Cursor Agent** finishes, waits for your permission, or hits an error.
 
 Built on Cursor's official [Hooks API](https://cursor.com/docs/agent/hooks). Notifications go through [ntfy](https://ntfy.sh) (no signup required).
 
-## Why CursorPing
+**Author:** [Owais Rafiq](https://github.com/owaisrafiq05)
 
-1. **Waiting-for-permission alerts** — get pinged when the agent is blocked on an "Allow?" prompt, whether that's a terminal command, a web search, an MCP tool, or any other approval
-2. **One-time setup** — install the extension once, pair your phone once; **every project** notifies
-3. **Session context** — completion titles include the project name, and the body includes the chat's initial (and latest) user message when available
+### Logo
+
+The Pingy icon is a stylized white ringing bell centered on a vibrant blue-gradient rounded hexagon — a notification bell with cyan sound-wave accents.
+
+## Why Pingy
+
+1. **Waiting alerts** — get pinged when the agent is blocked on an "Allow?" prompt
+2. **One-time setup** — install once, pair your phone once; **every project** notifies
+3. **Session context** — every push includes the project name and prompt when available
+
+### Notification copy
+
+| Event | Title | Body |
+|-------|-------|------|
+| Completed | Completed | Your agent cooked. Task's done 🔥 |
+| Waiting | 👀 Waiting | Hey, your agent needs you |
+| Error | 🚨 Error | Uh oh… your agent hit a snag 😬 |
+
+Each description also includes **Project** and **Prompt**.
 
 ## Requirements
 
@@ -26,7 +42,7 @@ npm run compile
 npm run package
 ```
 
-In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.2.0.vsix`.
+In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.3.2.vsix`.
 
 ### After install (do this once)
 
@@ -115,3 +131,7 @@ echo {"conversation_id":"t","status":"completed","workspace_roots":["D:/foo/chec
 ## License
 
 MIT
+
+## Author
+
+**Owais Rafiq** — [github.com/owaisrafiq05](https://github.com/owaisrafiq05)

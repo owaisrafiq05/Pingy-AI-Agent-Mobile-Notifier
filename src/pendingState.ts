@@ -12,6 +12,7 @@ export interface PendingEntry {
   toolName?: string | null;
   command?: string | null;
   toolUseId?: string | null;
+  project?: string | null;
 }
 
 export type PendingState = Record<string, PendingEntry>;

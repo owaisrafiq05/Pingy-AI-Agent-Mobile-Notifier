@@ -15,7 +15,18 @@ async function startNtfyStub() {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
-      received.push({ title: req.headers.title, body });
+      let title = req.headers.title;
+      let message = body;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed && typeof parsed === 'object') {
+          title = parsed.title ?? title;
+          message = parsed.message ?? body;
+        }
+      } catch {
+        /* plain-text body publish */
+      }
+      received.push({ title, body: message });
       res.writeHead(200).end('ok');
     });
   });
@@ -177,7 +188,8 @@ test('completion notifications still work', async (t) => {
   });
 
   assert.strictEqual(ntfy.received.length, 1, 'exactly one completion ping');
-  assert.match(ntfy.received[0].title, /All done on checkout-api/);
+  assert.strictEqual(ntfy.received[0].title, 'Completed');
+  assert.match(ntfy.received[0].body, /Your agent cooked/);
   assert.match(ntfy.received[0].body, /add a login page/);
   assert.deepStrictEqual(readPending(dir), {}, 'stop also clears any open gate');
 });
@@ -201,8 +213,9 @@ test('error and aborted completions keep their own copy', async (t) => {
   });
 
   assert.strictEqual(ntfy.received.length, 2);
-  assert.match(ntfy.received[0].title, /snag on checkout-api/);
-  assert.match(ntfy.received[1].title, /Run stopped on checkout-api/);
+  assert.strictEqual(ntfy.received[0].title, '🚨 Error');
+  assert.match(ntfy.received[0].body, /hit a snag/);
+  assert.strictEqual(ntfy.received[1].title, 'Stopped');
 });
 
 test('permission check notifies only while the gate stays open', async (t) => {
@@ -234,11 +247,9 @@ test('permission check notifies only while the gate stays open', async (t) => {
   });
   await new Promise((r) => setTimeout(r, 2500));
   assert.strictEqual(ntfy.received.length, 1);
-  assert.strictEqual(ntfy.received[0].title, 'Cursor needs your attention');
-  assert.strictEqual(
-    ntfy.received[0].body,
-    'The Agent is waiting for your permission to continue.'
-  );
+  assert.strictEqual(ntfy.received[0].title, '👀 Waiting');
+  assert.match(ntfy.received[0].body, /Hey, your agent needs you/);
+  assert.ok(!ntfy.received[0].body.includes('👀'));
   assert.strictEqual(readPending(dir).conv1.notified, true);
 
   // Still open ⇒ no second push.
@@ -285,18 +296,24 @@ test('BOM-prefixed stdin still records a pending gate', async () => {
 });
 
 test('permission copy is exactly what the spec asks for', () => {
-  const { permissionMessage } = require(path.join(TEMPLATE_ROOT, 'lib', 'messages.js'));
-  const hook = permissionMessage();
-  const extension = require('../out/messages').permissionMessage();
+  const { permissionMessage, stopMessage } = require(path.join(
+    TEMPLATE_ROOT,
+    'lib',
+    'messages.js'
+  ));
+  const hookWait = permissionMessage('demo');
+  const extWait = require('../out/messages').permissionMessage('demo');
+  const hookDone = stopMessage('completed', 'demo');
+  const hookErr = stopMessage('error', 'demo');
 
-  assert.strictEqual(hook.title, 'Cursor needs your attention');
-  assert.strictEqual(
-    hook.message,
-    'The Agent is waiting for your permission to continue.'
-  );
-  assert.deepStrictEqual(
-    extension,
-    hook,
-    'hook and extension copy must not drift apart'
-  );
+  assert.strictEqual(hookWait.title, '👀 Waiting');
+  assert.match(hookWait.message, /Hey, your agent needs you/);
+  assert.ok(!hookWait.message.includes('👀'));
+  assert.match(hookWait.message, /Project: demo/);
+  assert.deepStrictEqual(extWait, hookWait);
+
+  assert.strictEqual(hookDone.title, 'Completed');
+  assert.match(hookDone.message, /Your agent cooked/);
+  assert.strictEqual(hookErr.title, '🚨 Error');
+  assert.match(hookErr.message, /hit a snag/);
 });

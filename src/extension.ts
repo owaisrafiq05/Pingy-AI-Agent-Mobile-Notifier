@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const topic = await runSetupWizard(context);
         statusBar?.setReady(topic);
         const showQr = await vscode.window.showInformationMessage(
-          `CursorPing is set up for all projects. Subscribe to "${topic}" in the ntfy app (once).`,
+          `Pingy is set up for all projects. Subscribe to "${topic}" in the ntfy app (once).`,
           'Show Pairing'
         );
         if (showQr === 'Show Pairing') {
@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         statusBar?.setError(msg);
-        vscode.window.showErrorMessage(`CursorPing setup failed: ${msg}`);
+        vscode.window.showErrorMessage(`Pingy setup failed: ${msg}`);
       }
     })
   );
@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
       let config = readActiveConfig(getWorkspaceRoot());
       if (!config?.ntfyTopic) {
         const choice = await vscode.window.showWarningMessage(
-          'CursorPing is not set up yet. Setup once — it covers every project.',
+          'Pingy is not set up yet. Setup once — it covers every project.',
           'Run Setup'
         );
         if (choice === 'Run Setup') {
@@ -73,9 +73,9 @@ export function activate(context: vscode.ExtensionContext): void {
           testMessage(project),
           config.serverUrl || getServerUrl()
         );
-        vscode.window.showInformationMessage('CursorPing: test notification sent.');
+        vscode.window.showInformationMessage('Pingy: test notification sent.');
       } catch (e) {
-        vscode.window.showErrorMessage(`CursorPing: test failed: ${e}`);
+        vscode.window.showErrorMessage(`Pingy: test failed: ${e}`);
       }
     })
   );
@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
   } catch (e) {
     console.error('cursorping: partial activation', e);
     void vscode.window.showWarningMessage(
-      `CursorPing activated with limited UI: ${e instanceof Error ? e.message : String(e)}`
+      `Pingy activated with limited UI: ${e instanceof Error ? e.message : String(e)}`
     );
   }
 }
@@ -173,37 +173,38 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
 
     // Claim before sending so a detached hook timer cannot double-push.
     const claimed: string[] = [];
-    {
-      let claimState = state;
+    let claimState = state;
+    try {
+      claimState = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
+    } catch {
+      /* use snapshot */
+    }
+    const { changed: claimedWrite } = applyDecision(
+      claimState,
+      { notify: decision.notify, expired: decision.expired },
+      decision.observedTs
+    );
+    for (const id of decision.notify) {
+      if (claimState[id]?.notified) {
+        claimed.push(id);
+      }
+    }
+    if (claimedWrite) {
       try {
-        claimState = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
-      } catch {
-        /* use snapshot */
-      }
-      const { changed: claimedWrite } = applyDecision(
-        claimState,
-        { notify: decision.notify, expired: decision.expired },
-        decision.observedTs
-      );
-      for (const id of decision.notify) {
-        if (claimState[id]?.notified) {
-          claimed.push(id);
-        }
-      }
-      if (claimedWrite) {
-        try {
-          fs.writeFileSync(stateFile, JSON.stringify(claimState, null, 2), 'utf8');
-        } catch (e) {
-          console.error('cursorping watcher: failed to claim pending', e);
-        }
+        fs.writeFileSync(stateFile, JSON.stringify(claimState, null, 2), 'utf8');
+      } catch (e) {
+        console.error('pingy watcher: failed to claim pending', e);
       }
     }
 
     for (const id of claimed) {
       try {
+        const entry = claimState[id] ?? state[id];
+        const projectName =
+          entry?.project || (root ? path.basename(root) : 'your project');
         await sendNtfy(
           config.ntfyTopic,
-          permissionMessage(),
+          permissionMessage(projectName),
           config.serverUrl || getServerUrl()
         );
         await context.globalState.update('cursorping.lastStatus', 'needs_approval');
@@ -218,7 +219,7 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
         } catch {
           /* best effort */
         }
-        console.error('cursorping watcher: notify failed', e);
+        console.error('pingy watcher: notify failed', e);
       }
     }
 
@@ -263,20 +264,27 @@ async function sendNtfy(
   const base = serverUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
-  const toHeader = (v: string) =>
-    v.replace(/[\u2013\u2014\u2015]/g, '-').replace(/[^\x20-\x7E]/g, '');
+  const priorityMap: Record<string, number> = {
+    min: 1,
+    low: 2,
+    default: 3,
+    high: 4,
+    max: 5,
+    urgent: 5,
+  };
+  const priorityNum = priorityMap[opts.priority ?? 'default'] ?? 3;
   try {
-    const headers: Record<string, string> = {
-      Title: toHeader(opts.title),
-      Priority: opts.priority ?? 'default',
-    };
-    if (opts.tags?.length) {
-      headers.Tags = opts.tags.join(',');
-    }
-    const res = await fetch(`${base}/${topic}`, {
+    // JSON publish keeps emoji titles intact (HTTP Title headers are Latin-1 only).
+    const res = await fetch(base, {
       method: 'POST',
-      headers,
-      body: opts.message,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic,
+        title: opts.title,
+        message: opts.message,
+        priority: priorityNum,
+        tags: opts.tags?.length ? opts.tags : undefined,
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {

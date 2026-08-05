@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.2
+
+- New Pingy extension logo (white ringing bell on a blue-gradient rounded hexagon)
+- Extension metadata credits author [Owais Rafiq](https://github.com/owaisrafiq05)
+
+## 0.3.1
+
+- Rebrand to **Pingy**
+- New notification copy:
+  - Completed — "Your agent cooked. Task's done 🔥"
+  - 👀 Waiting — "Hey, your agent needs you"
+  - 🚨 Error — "Uh oh… your agent hit a snag 😬"
+- Description includes project + prompt
+- Publish via ntfy JSON API so emoji titles are preserved
+
 ## 0.3.0
 
 - Notify when the Agent is waiting for your permission — "Cursor needs your attention" / "The Agent is waiting for your permission to continue."

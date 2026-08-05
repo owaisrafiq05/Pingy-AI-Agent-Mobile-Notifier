@@ -11,27 +11,27 @@ export class StatusBar {
   }
 
   setIdle(): void {
-    this.item.text = '$(bell) CursorPing';
-    this.item.tooltip = 'CursorPing — click to show pairing QR';
+    this.item.text = '$(bell) Pingy';
+    this.item.tooltip = 'Pingy — click to show pairing QR';
   }
 
   setReady(topic: string): void {
-    this.item.text = '$(bell) CursorPing';
-    this.item.tooltip = `CursorPing ready · topic ${topic}`;
+    this.item.text = '$(bell) Pingy';
+    this.item.tooltip = `Pingy ready · topic ${topic}`;
   }
 
   setNeedsYou(): void {
-    this.item.text = '$(warning) CursorPing: needs you';
+    this.item.text = '$(warning) Pingy: waiting';
     this.item.tooltip = 'Agent may be waiting on approval';
   }
 
   setFinished(status: string): void {
-    this.item.text = `$(check) CursorPing: ${status}`;
+    this.item.text = `$(check) Pingy: ${status}`;
     this.item.tooltip = `Last agent status: ${status}`;
   }
 
   setError(message: string): void {
-    this.item.text = '$(error) CursorPing';
+    this.item.text = '$(error) Pingy';
     this.item.tooltip = message;
   }
 

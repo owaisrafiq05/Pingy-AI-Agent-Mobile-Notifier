@@ -1,14 +1,10 @@
 /**
  * Post a notification to ntfy. Never throws — failures are logged only
  * so a network hiccup cannot hang or break Cursor's agent loop.
+ *
+ * Uses JSON publish so emoji titles (✅ / 👀 / 🚨) survive — HTTP headers
+ * are Latin-1 ByteStrings and would strip them.
  */
-
-/** ntfy header values must be Latin-1 ByteStrings (Node fetch restriction). */
-function toHeaderValue(value) {
-  return String(value ?? '')
-    .replace(/[\u2013\u2014\u2015]/g, '-') // en/em dashes
-    .replace(/[^\x20-\x7E]/g, '');
-}
 
 async function sendNotification(
   topic,
@@ -16,7 +12,7 @@ async function sendNotification(
   serverUrl = 'https://ntfy.sh'
 ) {
   if (!topic) {
-    console.error('cursorping: notify skipped - no topic configured');
+    console.error('pingy: notify skipped - no topic configured');
     return;
   }
 
@@ -24,23 +20,34 @@ async function sendNotification(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
-  try {
-    const headers = {
-      Title: toHeaderValue(title),
-      Priority: String(priority),
-    };
-    if (tags && tags.length) {
-      headers.Tags = tags.join(',');
-    }
+  const priorityMap = {
+    min: 1,
+    low: 2,
+    default: 3,
+    high: 4,
+    max: 5,
+    urgent: 5,
+  };
+  const priorityNum =
+    typeof priority === 'number'
+      ? priority
+      : priorityMap[String(priority)] ?? 3;
 
-    await fetch(`${base}/${topic}`, {
+  try {
+    await fetch(base, {
       method: 'POST',
-      headers,
-      body: message ?? '',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic,
+        title: title ?? '',
+        message: message ?? '',
+        priority: priorityNum,
+        tags: tags && tags.length ? tags : undefined,
+      }),
       signal: controller.signal,
     });
   } catch (e) {
-    console.error('cursorping: notify failed', e);
+    console.error('pingy: notify failed', e);
   } finally {
     clearTimeout(timeout);
   }

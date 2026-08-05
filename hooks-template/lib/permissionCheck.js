@@ -12,6 +12,7 @@ const os = require('os');
 const { sendNotification } = require('./notifier');
 const { permissionMessage } = require('./messages');
 const { readState, claimNotification } = require('./state');
+const { resolveChatContext } = require('./context');
 
 function loadConfig() {
   const candidates = [];
@@ -64,21 +65,21 @@ async function main() {
     process.exit(0);
   }
 
-  // Still open after the delay ⇒ the agent is waiting on the Allow prompt.
   if (!claimNotification(conversationId)) {
     process.exit(0);
   }
 
   const config = loadConfig();
+  const chat = resolveChatContext({ conversation_id: conversationId });
   await sendNotification(
     config.ntfyTopic,
-    permissionMessage(),
+    permissionMessage(entry.project || 'your project', chat),
     config.serverUrl
   );
   process.exit(0);
 }
 
 main().catch((e) => {
-  console.error('cursorping: permissionCheck failed', e);
+  console.error('pingy: permissionCheck failed', e);
   process.exit(0);
 });

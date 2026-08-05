@@ -104,13 +104,13 @@ export async function runSetupWizard(context: vscode.ExtensionContext): Promise<
   const templateRoot = path.join(context.extensionPath, 'hooks-template');
   if (!fs.existsSync(templateRoot)) {
     throw new Error(
-      `Hook templates not found at ${templateRoot}. Reinstall the CursorPing extension.`
+      `Hook templates not found at ${templateRoot}. Reinstall the Pingy extension.`
     );
   }
 
   const existing = readGlobalConfig();
   const topic =
-    existing?.ntfyTopic || `cursorping-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+    existing?.ntfyTopic || `pingy-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
 
   const destHooks = globalHooksDir();
   fs.mkdirSync(destHooks, { recursive: true });
