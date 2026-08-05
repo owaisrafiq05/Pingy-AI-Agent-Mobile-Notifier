@@ -8,13 +8,12 @@
  * block the agent. Emitting a decision here would override Cursor's own
  * approval flow, which is exactly the thing we are trying to observe.
  *
- * On gate open we schedule a tiny detached checker. If the gate is still open
- * after pendingTimeoutMs, that checker sends the one permission notification.
- * Approving/rejecting clears the gate first, so allowlisted fast commands stay
- * silent.
+ * On gate open we only record pending state. Waiting notifications are sent by
+ * the extension watcher (it can tell a slow auto-run command apart from a real
+ * Run/Skip prompt). Hooks must not push "waiting" on their own — a gate that
+ * stays open while a command runs is not the same as waiting for approval.
  */
 const path = require('path');
-const { spawn } = require('child_process');
 const fs = require('fs');
 const { sendNotification } = require('./lib/notifier');
 const { stopMessage } = require('./lib/messages');
@@ -33,20 +32,6 @@ const GATE_EVENTS = new Set([
   'preToolUse',
   'beforeShellExecution',
   'beforeMCPExecution',
-]);
-
-/**
- * Tools that almost never show an Allow prompt. Scheduling a permission check
- * for these would mostly create noise, so they only clear state when they end.
- */
-const QUIET_PRE_TOOL = new Set([
-  'Read',
-  'Grep',
-  'Glob',
-  'SemSearch',
-  'AwaitShell',
-  'ReadLints',
-  'TodoWrite',
 ]);
 
 /**
@@ -162,46 +147,11 @@ function gateMeta(eventName, payload) {
   };
 }
 
-function shouldSchedulePermissionCheck(eventName, payload) {
-  if (eventName === 'beforeShellExecution' || eventName === 'beforeMCPExecution') {
-    return true;
-  }
-  if (eventName === 'preToolUse') {
-    const tool = payload.tool_name || '';
-    return !QUIET_PRE_TOOL.has(tool);
-  }
-  return false;
-}
-
-/**
- * Fire-and-forget: parent hook exits immediately; this child waits and notifies
- * only if Cursor is still waiting on Run / Skip.
- */
-function schedulePermissionCheck(conversationId, delayMs) {
-  if (!conversationId) return;
-  const script = path.join(__dirname, 'lib', 'permissionCheck.js');
-  try {
-    const child = spawn(
-      process.execPath,
-      [script, String(delayMs), conversationId],
-      {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      }
-    );
-    child.unref();
-  } catch (e) {
-    console.error('cursorping: failed to schedule permission check', e);
-  }
-}
-
 async function main() {
   const eventName = process.argv[2] || '';
   const config = loadConfig();
   const payload = parsePayload(await readStdin());
   const project = projectName(payload.workspace_roots);
-  const delayMs = config.pendingTimeoutMs ?? 2000;
 
   try {
     if (eventName === 'beforeSubmitPrompt') {
@@ -210,9 +160,6 @@ async function main() {
       process.stdout.write(JSON.stringify({ continue: true }));
     } else if (GATE_EVENTS.has(eventName)) {
       markPending(payload.conversation_id, gateMeta(eventName, payload));
-      if (shouldSchedulePermissionCheck(eventName, payload)) {
-        schedulePermissionCheck(payload.conversation_id, delayMs);
-      }
     } else if (RESOLVE_EVENTS.has(eventName)) {
       clearPending(payload.conversation_id);
     } else if (eventName === 'stop') {

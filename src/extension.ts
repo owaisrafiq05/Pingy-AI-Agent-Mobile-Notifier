@@ -153,6 +153,7 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
     timeoutMs: config.pendingTimeoutMs ?? getPendingTimeoutMs(),
     maxAgeMs: getPendingMaxAgeMs(),
     isExecuting: terminalActivity?.isExecuting,
+    shellActivityAvailable: terminalActivity?.isSupported === true,
   };
 
   let anyWaiting = false;

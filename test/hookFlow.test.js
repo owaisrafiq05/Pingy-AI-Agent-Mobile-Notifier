@@ -218,7 +218,7 @@ test('error and aborted completions keep their own copy', async (t) => {
   assert.strictEqual(ntfy.received[1].title, 'Stopped');
 });
 
-test('permission check notifies only while the gate stays open', async (t) => {
+test('hooks do not send waiting notifications (extension owns that)', async (t) => {
   const ntfy = await startNtfyStub();
   const dir = installHooks(ntfy.url);
 
@@ -233,28 +233,13 @@ test('permission check notifies only while the gate stays open', async (t) => {
   });
   assert.ok(readPending(dir).conv1);
 
-  // Gate cleared before the delay ⇒ no notification.
-  await fireHook(dir, 'afterShellExecution', {
-    conversation_id: 'conv1',
-    command: 'hostname',
-  });
   await new Promise((r) => setTimeout(r, 2500));
-  assert.strictEqual(ntfy.received.length, 0);
-
-  await fireHook(dir, 'beforeShellExecution', {
-    conversation_id: 'conv1',
-    command: 'hostname',
-  });
-  await new Promise((r) => setTimeout(r, 2500));
-  assert.strictEqual(ntfy.received.length, 1);
-  assert.strictEqual(ntfy.received[0].title, '👀 Waiting');
-  assert.match(ntfy.received[0].body, /Hey, your agent needs you/);
-  assert.ok(!ntfy.received[0].body.includes('👀'));
-  assert.strictEqual(readPending(dir).conv1.notified, true);
-
-  // Still open ⇒ no second push.
-  await new Promise((r) => setTimeout(r, 2500));
-  assert.strictEqual(ntfy.received.length, 1);
+  assert.strictEqual(
+    ntfy.received.length,
+    0,
+    'a still-open gate must not push waiting from the hook path'
+  );
+  assert.strictEqual(readPending(dir).conv1.notified, false);
 });
 
 test('BOM-prefixed stdin still records a pending gate', async () => {

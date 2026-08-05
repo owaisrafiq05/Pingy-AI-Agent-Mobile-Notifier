@@ -15,12 +15,13 @@ function gate(overrides = {}) {
   return { ts: 0, notified: false, toolName: 'Shell', command: 'npm test', ...overrides };
 }
 
-function decide(state, now, isExecuting) {
+function decide(state, now, isExecuting, shellActivityAvailable = true) {
   return decidePending(state, {
     now,
     timeoutMs: TIMEOUT,
     maxAgeMs: MAX_AGE,
     isExecuting,
+    shellActivityAvailable,
   });
 }
 
@@ -28,10 +29,10 @@ function decide(state, now, isExecuting) {
  * Simulates the extension watcher polling the file the hooks write, so the
  * assertions below count real would-be notifications.
  */
-function runWatcher(state, { from, to, stepMs = 5000, isExecuting } = {}) {
+function runWatcher(state, { from, to, stepMs = 5000, isExecuting, shellActivityAvailable = true } = {}) {
   let sent = 0;
   for (let now = from; now <= to; now += stepMs) {
-    const decision = decide(state, now, isExecuting);
+    const decision = decide(state, now, isExecuting, shellActivityAvailable);
     sent += decision.notify.length;
     applyDecision(state, decision);
   }
@@ -97,6 +98,33 @@ test('stays quiet while the command is actually executing', () => {
     isExecuting: (entry) => entry.command === 'npm install',
   });
   assert.strictEqual(sent, 0, 'a slow command is not a permission prompt');
+});
+
+test('stays quiet for shell gates when terminal activity is unavailable', () => {
+  const state = { conv1: gate({ ts: 0, event: 'beforeShellExecution' }) };
+  const sent = runWatcher(state, {
+    from: 0,
+    to: 120000,
+    shellActivityAvailable: false,
+  });
+  assert.strictEqual(
+    sent,
+    0,
+    'without terminal activity, slow auto-run must not look like waiting'
+  );
+});
+
+test('non-shell gates still notify from timeout alone', () => {
+  const state = {
+    conv1: gate({
+      ts: 0,
+      toolName: 'WebSearch',
+      command: null,
+      event: 'preToolUse',
+    }),
+  };
+  const decision = decide(state, TIMEOUT, undefined, false);
+  assert.deepStrictEqual(decision.notify, ['conv1']);
 });
 
 test('notifies once execution corroboration stops matching', () => {

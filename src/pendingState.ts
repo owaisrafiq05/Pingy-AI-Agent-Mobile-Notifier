@@ -26,6 +26,12 @@ export interface DecisionOptions {
    * now, so the agent is busy rather than blocked on a prompt.
    */
   isExecuting?: (entry: PendingEntry) => boolean;
+  /**
+   * When true, shell gates may notify only if isExecuting says the command is
+   * not running. When false/omitted, shell gates stay silent — without terminal
+   * activity we cannot tell a slow auto-run apart from a real Run/Skip wait.
+   */
+  shellActivityAvailable?: boolean;
 }
 
 export interface PendingDecision {
@@ -50,6 +56,11 @@ export function parsePendingState(raw: string): PendingState {
   } catch {
     return {};
   }
+}
+
+/** Shell gates need terminal-activity corroboration; timeout alone is too noisy. */
+export function isShellGate(entry: PendingEntry): boolean {
+  return entry.event === 'beforeShellExecution' || entry.toolName === 'Shell';
 }
 
 export function decidePending(
@@ -85,7 +96,15 @@ export function decidePending(
       continue;
     }
 
-    if (opts.isExecuting?.(entry)) {
+    if (isShellGate(entry)) {
+      // Prefer missing a wait over pinging while a command is just running.
+      if (!opts.shellActivityAvailable) {
+        continue;
+      }
+      if (opts.isExecuting?.(entry)) {
+        continue;
+      }
+    } else if (opts.isExecuting?.(entry)) {
       continue;
     }
 

@@ -2,7 +2,8 @@
 
 ## 0.3.4
 
-- Extension ID renamed from `OwaisRafiq.cursorping` to `OwaisRafiq.pingy` (Open VSX / Marketplace URL slug)
+- Keep Open VSX slug as `OwaisRafiq.cursorping` while product branding stays **Pingy**
+- Fix false “waiting” notifications: hooks no longer push waiting alerts; shell waits need terminal-activity corroboration
 
 ## 0.3.3
 

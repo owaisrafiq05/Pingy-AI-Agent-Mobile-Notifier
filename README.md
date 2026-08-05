@@ -57,7 +57,7 @@ npm run compile
 npm run package
 ```
 
-In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `pingy-0.3.4.vsix`.
+In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.3.4.vsix`.
 
 ### After install (do this once)
 
