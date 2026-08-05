@@ -1,14 +1,64 @@
 {
   "version": 1,
   "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .cursor/hooks/cursorping.js beforeSubmitPrompt"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node .cursor/hooks/cursorping.js preToolUse"
+      }
+    ],
     "beforeShellExecution": [
       {
         "command": "node .cursor/hooks/cursorping.js beforeShellExecution"
       }
     ],
+    "beforeMCPExecution": [
+      {
+        "command": "node .cursor/hooks/cursorping.js beforeMCPExecution"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node .cursor/hooks/cursorping.js postToolUse"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "node .cursor/hooks/cursorping.js postToolUseFailure"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "node .cursor/hooks/cursorping.js afterShellExecution"
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "node .cursor/hooks/cursorping.js afterMCPExecution"
+      }
+    ],
     "afterFileEdit": [
       {
         "command": "node .cursor/hooks/cursorping.js afterFileEdit"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "node .cursor/hooks/cursorping.js afterAgentResponse"
+      }
+    ],
+    "afterAgentThought": [
+      {
+        "command": "node .cursor/hooks/cursorping.js afterAgentThought"
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "node .cursor/hooks/cursorping.js subagentStop"
       }
     ],
     "stop": [

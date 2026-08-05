@@ -1,14 +1,14 @@
 # CursorPing
 
-Push a mobile notification when the **Cursor Agent** finishes — or when it looks like it's waiting on your approval.
+Push a mobile notification when the **Cursor Agent** finishes — or when it stops and waits for your permission.
 
-Built on Cursor's official [Hooks API](https://cursor.com/docs/agent/hooks) (`stop`, `beforeShellExecution`, `afterFileEdit`). Notifications go through [ntfy](https://ntfy.sh) (no signup required).
+Built on Cursor's official [Hooks API](https://cursor.com/docs/agent/hooks). Notifications go through [ntfy](https://ntfy.sh) (no signup required).
 
 ## Why CursorPing
 
-1. **Needs-you alerts** — timing heuristic on `beforeShellExecution` when no follow-up arrives within a configurable window
+1. **Waiting-for-permission alerts** — get pinged when the agent is blocked on an "Allow?" prompt, whether that's a terminal command, a web search, an MCP tool, or any other approval
 2. **One-time setup** — install the extension once, pair your phone once; **every project** notifies
-3. **Session context** — titles include the project name, and the body includes the chat's initial (and latest) user message when available
+3. **Session context** — completion titles include the project name, and the body includes the chat's initial (and latest) user message when available
 
 ## Requirements
 
@@ -51,20 +51,44 @@ Under your user Cursor folder (`~/.cursor` / `%USERPROFILE%\.cursor`):
 | **Hook bridge** | Cursor spawns a short-lived Node process on agent events; it posts to ntfy |
 | **Extension** | One-time global install, QR pairing, status bar, test ping, pending watcher |
 
-### Needs-approval detection
+### Waiting-for-permission detection
 
-1. **Option A** — each hook invocation checks pending state for stale entries
-2. **Option B** — while the extension is active, it polls the same file every few seconds
+Cursor exposes **no event for "an approval dialog is open"**, and no VS Code API can see Cursor's chat UI. What the hooks API does give us is both edges of the gate the dialog sits in:
 
-Tune `cursorping.pendingTimeoutMs` (default 15000) if slow shells false-trigger “needs you”.
+| Phase | Hook events | What CursorPing does |
+|-------|-------------|----------------------|
+| Gate opens | `preToolUse`, `beforeShellExecution`, `beforeMCPExecution` | Record an open gate for the conversation |
+| Gate closes | `postToolUse`, `postToolUseFailure`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `afterAgentResponse`, `afterAgentThought`, `subagentStop`, `stop` | Clear it |
+
+A gate that stays open past `cursorping.pendingTimeoutMs` with no follow-up event means the agent loop is blocked — it cannot think, run tools, or finish while a prompt is up. `preToolUse` fires for every tool, so web search, MCP calls, subagents, and file operations are covered, not just terminal commands.
+
+The extension does the timing, because a hook is a short-lived process that must exit immediately and cannot wait out a timeout. It is also the **only** sender of these notifications, which is what guarantees one ping per prompt.
+
+Two things keep it honest:
+
+- **No duplicates.** A gate is marked notified and keeps that flag until a hook clears it, so a prompt left open all afternoon pings once. Approving or rejecting clears the gate and re-arms the next alert. Writes are compare-and-set, so a hook resolving a gate mid-send is never clobbered.
+- **No false alarms from slow commands.** Where VS Code shell integration is available, a shell gate whose command is observably executing is treated as busy rather than blocked. This is best-effort corroboration; without it, detection falls back to the timeout alone.
+
+The hook script is strictly observe-only and never returns a permission decision — doing so would auto-approve the action and hide the very prompt we are trying to detect.
+
+Tune `cursorping.pendingTimeoutMs` (default 15000) if slow tools still false-trigger.
 
 ## Settings
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `cursorping.serverUrl` | `https://ntfy.sh` | ntfy base URL (self-host friendly) |
-| `cursorping.pendingTimeoutMs` | `15000` | Stale pending threshold |
+| `cursorping.pendingTimeoutMs` | `15000` | How long a gate may stay open before it counts as waiting on you |
+| `cursorping.pendingMaxAgeMs` | `1800000` | After this, an unresolved gate is treated as abandoned, not waiting |
 | `cursorping.watcherIntervalMs` | `5000` | Extension poll interval |
+
+## Tests
+
+```bash
+npm test
+```
+
+Covers the gate state machine (one notification per request, re-arming after approve/reject, no duplicates, race handling) and runs the hook bridge end to end against a stub ntfy server.
 
 ## Manual smoke test
 
@@ -76,7 +100,8 @@ echo {"conversation_id":"t","status":"completed","workspace_roots":["D:/foo/chec
 ## Limitations
 
 - Hooks are relatively new; field names may change. Pin against the [official docs](https://cursor.com/docs/agent/hooks).
-- "Needs approval" is a timing heuristic, not a first-class Cursor signal.
+- "Waiting for permission" is inferred from a silent gap between documented hook events, because Cursor has no first-class signal for it. A tool that blocks for longer than the timeout without shell integration to vouch for it can still ping early.
+- Permission alerts need the extension running; a hooks-only install still gets completion alerts.
 - ntfy topics are public-by-obscurity; use a self-hosted server if that matters.
 - Cursor CLI agent hooks are not promised until officially supported.
 

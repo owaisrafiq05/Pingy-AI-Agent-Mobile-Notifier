@@ -13,6 +13,28 @@ import {
 
 const CURSORPING_CMD = 'cursorping.js';
 
+/**
+ * Gate events (`preToolUse`, `beforeShellExecution`, `beforeMCPExecution`) open
+ * a window where Cursor may ask the user to approve something; the rest close
+ * it again. Subscribing to both sides is what makes "waiting for permission"
+ * observable, since Cursor exposes no event for the prompt itself.
+ */
+export const CURSORPING_EVENTS = [
+  'beforeSubmitPrompt',
+  'preToolUse',
+  'beforeShellExecution',
+  'beforeMCPExecution',
+  'postToolUse',
+  'postToolUseFailure',
+  'afterShellExecution',
+  'afterMCPExecution',
+  'afterFileEdit',
+  'afterAgentResponse',
+  'afterAgentThought',
+  'subagentStop',
+  'stop',
+] as const;
+
 function copyRecursive(src: string, dest: string): void {
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
@@ -37,16 +59,12 @@ function isCursorPingCommand(command: string | undefined): boolean {
  * Merge CursorPing hooks into ~/.cursor/hooks.json without wiping other user hooks.
  */
 function mergeUserHooksJson(hooksJsonPath: string): void {
-  const cursorPingHooks: Record<string, Array<{ command: string }>> = {
-    beforeSubmitPrompt: [
-      { command: 'node ./hooks/cursorping.js beforeSubmitPrompt' },
-    ],
-    beforeShellExecution: [
-      { command: 'node ./hooks/cursorping.js beforeShellExecution' },
-    ],
-    afterFileEdit: [{ command: 'node ./hooks/cursorping.js afterFileEdit' }],
-    stop: [{ command: 'node ./hooks/cursorping.js stop' }],
-  };
+  const cursorPingHooks: Record<string, Array<{ command: string }>> = {};
+  for (const event of CURSORPING_EVENTS) {
+    cursorPingHooks[event] = [
+      { command: `node ./hooks/cursorping.js ${event}` },
+    ];
+  }
 
   let existing: { version?: number; hooks?: Record<string, Array<{ command?: string }>> } =
     { version: 1, hooks: {} };

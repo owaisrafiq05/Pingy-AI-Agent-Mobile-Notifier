@@ -3,27 +3,56 @@
  * Titles stay ASCII-safe (ntfy header ByteString limits).
  */
 
-function stopMessage(status, project) {
+function formatContextBody(base, project, chat) {
+  const lines = [base];
+  lines.push('');
+  lines.push(`Project: ${project || 'your project'}`);
+
+  if (chat?.firstPrompt) {
+    lines.push(`Started with: "${chat.firstPrompt}"`);
+  }
+  if (
+    chat?.latestPrompt &&
+    chat.latestPrompt !== chat.firstPrompt
+  ) {
+    lines.push(`Latest ask: "${chat.latestPrompt}"`);
+  }
+  if (!chat?.firstPrompt && !chat?.latestPrompt) {
+    lines.push('(No chat prompt available for this run.)');
+  }
+  return lines.join('\n');
+}
+
+function stopMessage(status, project, chat) {
   const name = project || 'your project';
   const byStatus = {
     completed: {
       title: `All done on ${name}`,
-      message:
+      message: formatContextBody(
         'Your Cursor agent just finished. Swing back when you can and check the results.',
+        name,
+        chat
+      ),
       priority: 'default',
       tags: ['white_check_mark', 'tada'],
     },
     error: {
       title: `Heads up - snag on ${name}`,
-      message:
+      message: formatContextBody(
         'The agent hit an error and stopped. A quick look in Cursor should tell you what went wrong.',
+        name,
+        chat
+      ),
       priority: 'high',
       tags: ['x', 'rotating_light'],
     },
     aborted: {
       title: `Run stopped on ${name}`,
-      message:
+      message: formatContextBody(
         'That session ended early (you cancelled it, or something interrupted it). No rush.',
+        name,
+        chat
+      ),
       priority: 'low',
       tags: ['no_entry_sign'],
     },
@@ -31,25 +60,43 @@ function stopMessage(status, project) {
   return byStatus[status] ?? byStatus.completed;
 }
 
-function needsYouMessage(project) {
-  const name = project || 'your project';
+const PERMISSION_TITLE = 'Cursor needs your attention';
+const PERMISSION_BODY = 'The Agent is waiting for your permission to continue.';
+
+/**
+ * Sent when the agent is blocked on an approval prompt. The wording is fixed
+ * so the push is instantly recognisable and never confused with a completion.
+ */
+function permissionMessage() {
   return {
-    title: `Got a second? ${name} needs you`,
-    message:
-      'Cursor looks stuck waiting for your approval on a command. Open the IDE and tap Allow when you can.',
+    title: PERMISSION_TITLE,
+    message: PERMISSION_BODY,
     priority: 'urgent',
-    tags: ['wave', 'hourglass'],
+    tags: ['hand', 'hourglass'],
   };
+}
+
+/** @deprecated Use permissionMessage — kept so older installs keep working. */
+function needsYouMessage() {
+  return permissionMessage();
 }
 
 function testMessage(project) {
   const name = project || 'your project';
   return {
     title: `Hey - CursorPing is live`,
-    message: `Pairing works for ${name}. You'll get a friendly ping here when the agent finishes or needs you.`,
+    message: `Pairing works for ${name}. You'll get a friendly ping here when the agent finishes or needs you — including which project and what you asked.`,
     priority: 'default',
     tags: ['blush', 'bell'],
   };
 }
 
-module.exports = { stopMessage, needsYouMessage, testMessage };
+module.exports = {
+  stopMessage,
+  permissionMessage,
+  needsYouMessage,
+  testMessage,
+  formatContextBody,
+  PERMISSION_TITLE,
+  PERMISSION_BODY,
+};

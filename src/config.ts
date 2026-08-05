@@ -10,7 +10,8 @@ export interface CursorPingConfig {
 }
 
 const DEFAULT_SERVER = 'https://ntfy.sh';
-const DEFAULT_TIMEOUT = 15000;
+/** Short enough to feel immediate on a Run/Skip prompt; long enough that allowlisted commands usually clear first. */
+const DEFAULT_TIMEOUT = 2000;
 
 export function getServerUrl(): string {
   return (
@@ -26,10 +27,18 @@ export function getPendingTimeoutMs(): number {
   );
 }
 
+/** Gates older than this are treated as abandoned rather than waiting. */
+export function getPendingMaxAgeMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('pendingMaxAgeMs') ??
+    30 * 60 * 1000
+  );
+}
+
 export function getWatcherIntervalMs(): number {
   return (
     vscode.workspace.getConfiguration('cursorping').get<number>('watcherIntervalMs') ??
-    5000
+    1000
   );
 }
 

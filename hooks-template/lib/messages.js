@@ -60,18 +60,25 @@ function stopMessage(status, project, chat) {
   return byStatus[status] ?? byStatus.completed;
 }
 
-function needsYouMessage(project, chat) {
-  const name = project || 'your project';
+const PERMISSION_TITLE = 'Cursor needs your attention';
+const PERMISSION_BODY = 'The Agent is waiting for your permission to continue.';
+
+/**
+ * Sent when the agent is blocked on an approval prompt. The wording is fixed
+ * so the push is instantly recognisable and never confused with a completion.
+ */
+function permissionMessage() {
   return {
-    title: `Got a second? ${name} needs you`,
-    message: formatContextBody(
-      'Cursor looks stuck waiting for your approval on a command. Open the IDE and tap Allow when you can.',
-      name,
-      chat
-    ),
+    title: PERMISSION_TITLE,
+    message: PERMISSION_BODY,
     priority: 'urgent',
-    tags: ['wave', 'hourglass'],
+    tags: ['hand', 'hourglass'],
   };
+}
+
+/** @deprecated Use permissionMessage — kept so older installs keep working. */
+function needsYouMessage() {
+  return permissionMessage();
 }
 
 function testMessage(project) {
@@ -84,4 +91,12 @@ function testMessage(project) {
   };
 }
 
-module.exports = { stopMessage, needsYouMessage, testMessage, formatContextBody };
+module.exports = {
+  stopMessage,
+  permissionMessage,
+  needsYouMessage,
+  testMessage,
+  formatContextBody,
+  PERMISSION_TITLE,
+  PERMISSION_BODY,
+};

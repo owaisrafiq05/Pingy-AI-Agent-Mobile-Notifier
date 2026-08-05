@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Notify when the Agent is waiting for your permission — "Cursor needs your attention" / "The Agent is waiting for your permission to continue."
+- Detection now covers every approval gate, not just terminal commands: `preToolUse` (web search, file tools, subagents), `beforeShellExecution`, and `beforeMCPExecution`
+- Gates are closed by `postToolUse`, `postToolUseFailure` (including `permission_denied`), `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `afterAgentResponse`, `afterAgentThought`, and `subagentStop`, so approving or rejecting re-arms the next alert
+- **Fix:** the `beforeShellExecution` hook no longer answers `{"permission":"allow"}`, which was silently auto-approving every terminal command and suppressing the prompt this feature detects
+- Exactly one notification per permission request: the extension watcher is the only sender, entries stay deduped until a hook clears them, and writes are compare-and-set against concurrent hook processes
+- Shell gates are cross-checked against VS Code terminal shell integration where available, so a slow command is not mistaken for a prompt
+- Abandoned gates expire via `cursorping.pendingMaxAgeMs` (default 30 min)
+- Add `npm test` covering the gate state machine and the hook bridge end to end
+
 ## 0.2.2
 
 - Replace extension icon with CursorPing brand logo

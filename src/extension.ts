@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  getPendingMaxAgeMs,
   getPendingTimeoutMs,
   getServerUrl,
   getWatcherIntervalMs,
@@ -13,10 +14,18 @@ import {
 import { showPairingQr } from './pairing';
 import { runSetupWizard } from './setupWizard';
 import { StatusBar } from './statusBar';
-import { needsYouMessage, testMessage } from './messages';
+import { permissionMessage, testMessage } from './messages';
+import {
+  applyDecision,
+  decidePending,
+  hasNotifiedPending,
+  parsePendingState,
+} from './pendingState';
+import { TerminalActivityTracker } from './terminalActivity';
 
 let statusBar: StatusBar | undefined;
 let watcherTimer: ReturnType<typeof setInterval> | undefined;
+let terminalActivity: TerminalActivityTracker | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -86,6 +95,9 @@ export function activate(context: vscode.ExtensionContext): void {
       statusBar.setReady(cfg.ntfyTopic);
     }
 
+    terminalActivity = new TerminalActivityTracker();
+    context.subscriptions.push(terminalActivity);
+
     startPendingWatcher(context);
     context.subscriptions.push({
       dispose: () => {
@@ -108,6 +120,8 @@ export function deactivate(): void {
     clearInterval(watcherTimer);
     watcherTimer = undefined;
   }
+  terminalActivity?.dispose();
+  terminalActivity = undefined;
 }
 
 function startPendingWatcher(context: vscode.ExtensionContext): void {
@@ -117,6 +131,11 @@ function startPendingWatcher(context: vscode.ExtensionContext): void {
   }, interval);
 }
 
+/**
+ * Polls the gate state written by the hooks. A gate that has stayed open past
+ * the timeout without any follow-up event means the agent loop is blocked on
+ * an approval prompt.
+ */
 async function checkStalePending(context: vscode.ExtensionContext): Promise<void> {
   const config = readActiveConfig(getWorkspaceRoot());
   if (!config?.ntfyTopic) {
@@ -129,53 +148,110 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
     candidates.push(pendingStatePath(root));
   }
 
-  const timeout = config.pendingTimeoutMs ?? getPendingTimeoutMs();
-  const now = Date.now();
-  const project = root ? path.basename(root) : 'your project';
+  const options = {
+    now: Date.now(),
+    timeoutMs: config.pendingTimeoutMs ?? getPendingTimeoutMs(),
+    maxAgeMs: getPendingMaxAgeMs(),
+    isExecuting: terminalActivity?.isExecuting,
+  };
+
+  let anyWaiting = false;
 
   for (const stateFile of candidates) {
     if (!fs.existsSync(stateFile)) {
       continue;
     }
 
-    let state: Record<string, { ts?: number; notified?: boolean }>;
+    let state;
     try {
-      state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      state = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
     } catch {
       continue;
     }
 
-    let changed = false;
-    for (const [id, entry] of Object.entries(state)) {
-      if (!entry || typeof entry.ts !== 'number' || entry.notified) {
-        continue;
-      }
-      if (now - entry.ts < timeout) {
-        continue;
-      }
+    const decision = decidePending(state, options);
 
+    // Claim before sending so a detached hook timer cannot double-push.
+    const claimed: string[] = [];
+    {
+      let claimState = state;
+      try {
+        claimState = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
+      } catch {
+        /* use snapshot */
+      }
+      const { changed: claimedWrite } = applyDecision(
+        claimState,
+        { notify: decision.notify, expired: decision.expired },
+        decision.observedTs
+      );
+      for (const id of decision.notify) {
+        if (claimState[id]?.notified) {
+          claimed.push(id);
+        }
+      }
+      if (claimedWrite) {
+        try {
+          fs.writeFileSync(stateFile, JSON.stringify(claimState, null, 2), 'utf8');
+        } catch (e) {
+          console.error('cursorping watcher: failed to claim pending', e);
+        }
+      }
+    }
+
+    for (const id of claimed) {
       try {
         await sendNtfy(
           config.ntfyTopic,
-          needsYouMessage(project),
+          permissionMessage(),
           config.serverUrl || getServerUrl()
         );
-        statusBar?.setNeedsYou();
-        delete state[id];
-        changed = true;
         await context.globalState.update('cursorping.lastStatus', 'needs_approval');
       } catch (e) {
+        // Un-claim so the next poll (or hook timer) can retry.
+        try {
+          const retry = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
+          if (retry[id] && retry[id].ts === decision.observedTs[id]) {
+            retry[id].notified = false;
+            fs.writeFileSync(stateFile, JSON.stringify(retry, null, 2), 'utf8');
+          }
+        } catch {
+          /* best effort */
+        }
         console.error('cursorping watcher: notify failed', e);
       }
     }
 
+    let fresh = state;
+    try {
+      fresh = parsePendingState(fs.readFileSync(stateFile, 'utf8'));
+    } catch {
+      /* fall back to the snapshot we already have */
+    }
+
+    const { changed } = applyDecision(
+      fresh,
+      { notify: [], expired: decision.expired },
+      decision.observedTs
+    );
+
     if (changed) {
       try {
-        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
+        fs.writeFileSync(stateFile, JSON.stringify(fresh, null, 2), 'utf8');
       } catch (e) {
         console.error('cursorping watcher: failed to write state', e);
       }
     }
+
+    if (hasNotifiedPending(fresh)) {
+      anyWaiting = true;
+    }
+  }
+
+  if (anyWaiting) {
+    statusBar?.setNeedsYou();
+  } else if (config.ntfyTopic) {
+    statusBar?.setReady(config.ntfyTopic);
   }
 }
 
