@@ -1,14 +1,25 @@
 # Pingy
 
-Push a mobile notification when the **Cursor Agent** finishes, waits for your permission, or hits an error.
+**Get notified when your AI coding agent needs you.**
 
-Built on Cursor's official [Hooks API](https://cursor.com/docs/agent/hooks). Notifications go through [ntfy](https://ntfy.sh) (no signup required).
+Your AI coding agent's little notification buddy.
+
+**Cursor → Claude Code → Codex → More coming soon**
+
+---
+
+Pingy sends a mobile push (via [ntfy](https://ntfy.sh)) when your agent finishes, waits for permission, or hits an error — so you can step away from the keyboard without missing the moment you're needed.
 
 **Author:** [Owais Rafiq](https://github.com/owaisrafiq05)
 
-### Logo
+## Supported agents
 
-The Pingy icon is a stylized white ringing bell centered on a vibrant blue-gradient rounded hexagon — a notification bell with cyan sound-wave accents.
+| Agent | Status |
+|-------|--------|
+| **Cursor** | Supported now |
+| **Claude Code** | Coming soon |
+| **Codex** | Coming soon |
+| More | Coming soon |
 
 ## Why Pingy
 
@@ -16,7 +27,7 @@ The Pingy icon is a stylized white ringing bell centered on a vibrant blue-gradi
 2. **One-time setup** — install once, pair your phone once; **every project** notifies
 3. **Session context** — every push includes the project name and prompt when available
 
-### Notification copy
+### What you get on your phone
 
 | Event | Title | Body |
 |-------|-------|------|
@@ -34,6 +45,10 @@ Each description also includes **Project** and **Prompt**.
 
 ## Install
 
+### From the marketplace
+
+Search for **Pingy** in Cursor / VS Code extensions (publisher: `OwaisRafiq`).
+
 ### From source (this repo)
 
 ```bash
@@ -42,13 +57,13 @@ npm run compile
 npm run package
 ```
 
-In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.3.2.vsix`.
+In Cursor: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick `cursorping-0.3.3.vsix`.
 
 ### After install (do this once)
 
-1. Command Palette → **CursorPing: Run Setup (once for all projects)**
-2. **CursorPing: Show Pairing QR Code** — subscribe to the topic in the ntfy app (iOS: paste the topic)
-3. Optionally **CursorPing: Send Test Notification**
+1. Command Palette → **Pingy: Run Setup (once for all projects)**
+2. **Pingy: Show Pairing QR Code** — subscribe to the topic in the ntfy app (iOS: paste the topic)
+3. Optionally **Pingy: Send Test Notification**
 
 That’s it. Open any other project and run the agent — you should get pings without setting up again.
 
@@ -56,7 +71,7 @@ That’s it. Open any other project and run the agent — you should get pings w
 
 Under your user Cursor folder (`~/.cursor` / `%USERPROFILE%\.cursor`):
 
-- `hooks.json` — merges CursorPing hooks (keeps your other hooks)
+- `hooks.json` — merges Pingy hooks (keeps your other hooks)
 - `hooks/cursorping.js` (+ `lib/`)
 - `hooks/cursorping.config.json` — topic + server URL (private to you)
 
@@ -71,8 +86,8 @@ Under your user Cursor folder (`~/.cursor` / `%USERPROFILE%\.cursor`):
 
 Cursor exposes **no event for "an approval dialog is open"**, and no VS Code API can see Cursor's chat UI. What the hooks API does give us is both edges of the gate the dialog sits in:
 
-| Phase | Hook events | What CursorPing does |
-|-------|-------------|----------------------|
+| Phase | Hook events | What Pingy does |
+|-------|-------------|-----------------|
 | Gate opens | `preToolUse`, `beforeShellExecution`, `beforeMCPExecution` | Record an open gate for the conversation |
 | Gate closes | `postToolUse`, `postToolUseFailure`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `afterAgentResponse`, `afterAgentThought`, `subagentStop`, `stop` | Clear it |
 
@@ -87,16 +102,16 @@ Two things keep it honest:
 
 The hook script is strictly observe-only and never returns a permission decision — doing so would auto-approve the action and hide the very prompt we are trying to detect.
 
-Tune `cursorping.pendingTimeoutMs` (default 15000) if slow tools still false-trigger.
+Tune `cursorping.pendingTimeoutMs` (default `2000`) if slow tools still false-trigger.
 
 ## Settings
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `cursorping.serverUrl` | `https://ntfy.sh` | ntfy base URL (self-host friendly) |
-| `cursorping.pendingTimeoutMs` | `15000` | How long a gate may stay open before it counts as waiting on you |
+| `cursorping.pendingTimeoutMs` | `2000` | How long a gate may stay open before it counts as waiting on you |
 | `cursorping.pendingMaxAgeMs` | `1800000` | After this, an unresolved gate is treated as abandoned, not waiting |
-| `cursorping.watcherIntervalMs` | `5000` | Extension poll interval |
+| `cursorping.watcherIntervalMs` | `1000` | Extension poll interval |
 
 ## Tests
 
@@ -120,6 +135,7 @@ echo {"conversation_id":"t","status":"completed","workspace_roots":["D:/foo/chec
 - Permission alerts need the extension running; a hooks-only install still gets completion alerts.
 - ntfy topics are public-by-obscurity; use a self-hosted server if that matters.
 - Cursor CLI agent hooks are not promised until officially supported.
+- Claude Code and Codex support are on the roadmap — not available in this release.
 
 ## Prior art (reference, not forks)
 

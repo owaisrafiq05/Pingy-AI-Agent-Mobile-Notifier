@@ -1,9 +1,9 @@
 {
   "name": "cursorping",
   "displayName": "Pingy",
-  "description": "Pingy — mobile pings when your Cursor agent finishes, waits for you, or hits an error. Created by Owais Rafiq.",
-  "version": "0.3.2",
-  "publisher": "cursorping",
+  "description": "Pingy — Get notified when your AI coding agent needs you. Your AI coding agent's little notification buddy.",
+  "version": "0.3.3",
+  "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
     "url": "https://github.com/owaisrafiq05"

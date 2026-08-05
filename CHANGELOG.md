@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- Product branding: **Pingy — Get notified when your AI coding agent needs you**
+- Tagline: *Your AI coding agent's little notification buddy*
+- Roadmap callout: Cursor → Claude Code → Codex → More coming soon
+- Positions the waiting / permission notification as a core Pingy feature
+
 ## 0.3.2
 
 - New Pingy extension logo (white ringing bell on a blue-gradient rounded hexagon)
