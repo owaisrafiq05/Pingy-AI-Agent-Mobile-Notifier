@@ -2,7 +2,7 @@
   "name": "cursorping",
   "displayName": "Pingy",
   "description": "Pingy — Get notified when your AI coding agent needs you. Your AI coding agent's little notification buddy.",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
@@ -88,13 +88,13 @@
     "@vscode/vsce": "^3.2.0",
     "typescript": "^5.3.3"
   },
-  "homepage": "https://github.com/owaisrafiq05",
+  "homepage": "https://github.com/owaisrafiq05/Pingy-AI-Agent-Mobile-Notifier",
   "repository": {
     "type": "git",
-    "url": "https://github.com/owaisrafiq05"
+    "url": "https://github.com/owaisrafiq05/Pingy-AI-Agent-Mobile-Notifier"
   },
   "bugs": {
-    "url": "https://github.com/owaisrafiq05"
+    "url": "https://github.com/owaisrafiq05/Pingy-AI-Agent-Mobile-Notifier/issues"
   },
   "icon": "media/icon.png"
 }

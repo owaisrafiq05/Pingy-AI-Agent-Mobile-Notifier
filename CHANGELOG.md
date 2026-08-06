@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- Refresh marketplace README: clear Getting Started steps, agent logos, star/contribute section
+
 ## 0.3.4
 
 - Keep Open VSX slug as `OwaisRafiq.cursorping` while product branding stays **Pingy**
