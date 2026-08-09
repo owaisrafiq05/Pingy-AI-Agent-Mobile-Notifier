@@ -67,6 +67,31 @@ export function globalHooksJsonPath(): string {
   return path.join(cursorUserDir(), 'hooks.json');
 }
 
+/** Claude Code user config root: ~/.claude (applies to every project). */
+export function claudeUserDir(): string {
+  return path.join(os.homedir(), '.claude');
+}
+
+/**
+ * Hook scripts live in their own subdirectory so they never collide with other
+ * tools' hooks under ~/.claude/hooks.
+ */
+export function claudeHooksDir(): string {
+  return path.join(claudeUserDir(), 'hooks', 'pingy');
+}
+
+export function claudeConfigPath(): string {
+  return path.join(claudeHooksDir(), 'cursorping.config.json');
+}
+
+/**
+ * Unlike ~/.cursor/hooks.json this file holds real user settings (theme, update
+ * channel, permissions), so it must be merged into, never overwritten.
+ */
+export function claudeSettingsPath(): string {
+  return path.join(claudeUserDir(), 'settings.json');
+}
+
 export function readGlobalConfig(): CursorPingConfig | undefined {
   const file = globalConfigPath();
   try {

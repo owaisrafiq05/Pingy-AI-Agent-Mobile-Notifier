@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- **Claude Code support.** Setup now installs hooks for both agents — `~/.cursor/hooks.json` and `~/.claude/settings.json` — in one run
+- Both agents publish to the **same ntfy topic**, so existing users get Claude Code notifications without re-pairing or a second subscription
+- Claude Code waiting alerts come from its real `Notification` event (`permission_prompt` / `idle_prompt` / `agent_needs_input`), so there is no timeout heuristic and no false "waiting" pings — none of Cursor's pending-gate machinery runs on the Claude path
+- Completion via `Stop`, errors via `StopFailure`, prompt context via `UserPromptSubmit`
+- Notification bodies gain an `Agent:` line (`Cursor` / `Claude Code`) so a push is attributable when both agents run in the same project
+- `~/.claude/settings.json` is merged, never overwritten: unrelated settings and other tools' hooks survive, re-running setup never stacks duplicates, and an unreadable file is backed up to `settings.json.bak-<timestamp>`
+- The Claude hook never writes to stdout and always exits 0 — exit code 2 would block the agent, and `UserPromptSubmit` stdout would be injected into the model's context
+- Harness-injected turns (background task notifications, system reminders, slash-command output) are no longer stored as "the prompt"; because the first prompt is sticky, one of these would otherwise head every push for the rest of the session. Stored prompts are also capped so the state file cannot grow unbounded
+- Hooks are loaded when a Claude Code session starts, so **restart Claude Code after running setup** — the README and setup message both call this out
+- README documents a manual install for Claude Code CLI users who don't run the extension
+
 ## 0.3.5
 
 - Refresh marketplace README: clear Getting Started steps, agent logos, star/contribute section

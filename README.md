@@ -15,7 +15,9 @@ Your AI coding agent's little notification buddy — step away from the keyboard
 
 ## Getting Started
 
-Follow these steps once to connect Pingy to your phone. After that, it works across all your Cursor projects.
+Follow these steps once to connect Pingy to your phone. After that, it works across all your Cursor and Claude Code projects.
+
+> Using the Claude Code CLI without Cursor or VS Code? Skip to [Claude Code without the extension](#claude-code-without-the-extension).
 
 ### 1. Install the extension
 
@@ -29,7 +31,7 @@ Press `Ctrl+Shift+P` (macOS: `Cmd+Shift+P`) to open the Command Palette, then ru
 
 A window appears with your private topic (for example `pingy-xxxxxxx`) and a QR code.
 
-> Tip: If this is your first install, also run **Pingy: Run Setup (once for all projects)** so hooks are installed globally.
+> Important: run **Pingy: Run Setup (once for all agents and projects)** from the Command Palette. Nothing notifies until you do — this is what installs the hooks for Cursor and Claude Code.
 
 ### 3. Install the ntfy app
 
@@ -54,15 +56,73 @@ You should receive a push on your phone confirming that **Pingy is live**.
 
 ### 6. You're all set
 
-Pingy is now connected to Cursor. Keep coding — you'll get mobile alerts when your agent finishes, waits for permission, or hits an error.
+Pingy is now connected to Cursor **and Claude Code**. Keep coding — you'll get mobile alerts when your agent finishes, waits for permission, or hits an error.
+
+Running setup installs hooks for both agents at once (`~/.cursor/hooks.json` and `~/.claude/settings.json`), and both use the topic you just paired. Restart Claude Code so it picks up the new hooks, then run `/hooks` in Claude Code to confirm they're registered.
+
+---
+
+## Claude Code without the extension
+
+If you use the Claude Code CLI and don't have the Pingy extension installed, wire it up by hand — it's three steps.
+
+**1. Copy the hook scripts** from this repo's `hooks-template/` to `~/.claude/hooks/pingy/`:
+
+```bash
+git clone https://github.com/owaisrafiq05/Pingy-AI-Agent-Mobile-Notifier
+mkdir -p ~/.claude/hooks/pingy
+cp -r Pingy-AI-Agent-Mobile-Notifier/hooks-template/* ~/.claude/hooks/pingy/
+```
+
+**2. Create `~/.claude/hooks/pingy/cursorping.config.json`** with a private, unguessable topic (this is what you subscribe to in the ntfy app):
+
+```json
+{
+  "ntfyTopic": "pingy-pick-something-random",
+  "serverUrl": "https://ntfy.sh"
+}
+```
+
+**3. Merge this into `~/.claude/settings.json`**, replacing `<ABS>` with the absolute path to `~/.claude/hooks/pingy` (use forward slashes, keep the quotes — paths often contain spaces). If the file already exists, add only the `hooks` key and leave your other settings alone:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" UserPromptSubmit", "timeout": 10 }] }
+    ],
+    "Notification": [
+      { "matcher": "permission_prompt|idle_prompt|agent_needs_input",
+        "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" Notification", "timeout": 10 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" Stop", "timeout": 10 }] }
+    ],
+    "StopFailure": [
+      { "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" StopFailure", "timeout": 10 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" SessionEnd", "timeout": 10 }] }
+    ]
+  }
+}
+```
+
+Restart Claude Code, run `/hooks` to confirm all five are registered, then subscribe to your topic in the ntfy app. Requires Node 18+.
+
+To test without waiting for a real task:
+
+```bash
+echo '{"session_id":"t1","cwd":"'"$PWD"'"}' | node ~/.claude/hooks/pingy/pingy-claude.js Stop
+```
 
 ---
 
 ## Why Pingy
 
 1. **Waiting alerts** — get pinged when the agent is blocked on an "Allow?" prompt
-2. **One-time setup** — install once, pair your phone once; every project notifies
-3. **Session context** — every push includes the project name and prompt when available
+2. **One-time setup** — install once, pair your phone once; every agent and every project notifies
+3. **Session context** — every push includes the project name, the agent, and the prompt when available
 
 ### What you get on your phone
 
@@ -72,16 +132,18 @@ Pingy is now connected to Cursor. Keep coding — you'll get mobile alerts when 
 | Waiting | 👀 Waiting | Hey, your agent needs you |
 | Error | 🚨 Error | Uh oh… your agent hit a snag 😬 |
 
-Each notification also includes **Project** and **Prompt** when available.
+Each notification also includes **Project**, **Agent** (`Cursor` or `Claude Code`), and **Prompt** when available.
 
 ## Supported agents
 
 | | Agent | Status |
 |---|-------|--------|
 | <img src="media/logos/cursor.png" alt="Cursor" width="22" height="22" /> | **Cursor** | Supported now |
-| <img src="media/logos/claude.png" alt="Claude" width="22" height="22" /> | **Claude Code** | Coming soon |
+| <img src="media/logos/claude.png" alt="Claude" width="22" height="22" /> | **Claude Code** | Supported now |
 | <img src="media/logos/openai.png" alt="Codex" width="22" height="22" /> | **Codex** | Coming soon |
 | | More | Coming soon |
+
+One setup covers both agents, and both publish to the same topic — you pair your phone once.
 
 ## Open Source & Contributing
 

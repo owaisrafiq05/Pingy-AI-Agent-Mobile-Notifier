@@ -1,8 +1,8 @@
 {
   "name": "cursorping",
   "displayName": "Pingy",
-  "description": "Pingy — Get notified when your AI coding agent needs you. Your AI coding agent's little notification buddy.",
-  "version": "0.3.5",
+  "description": "Pingy — Get notified when your AI coding agent needs you. Works with Cursor and Claude Code. Your AI coding agent's little notification buddy.",
+  "version": "0.4.0",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
@@ -17,6 +17,9 @@
   ],
   "keywords": [
     "cursor",
+    "claude",
+    "claude-code",
+    "anthropic",
     "agent",
     "ntfy",
     "notifications",
@@ -34,7 +37,7 @@
     "commands": [
       {
         "command": "cursorping.setup",
-        "title": "Pingy: Run Setup (once for all projects)"
+        "title": "Pingy: Run Setup (once for all agents and projects)"
       },
       {
         "command": "cursorping.sendTest",

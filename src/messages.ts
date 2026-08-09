@@ -12,12 +12,21 @@ export interface NotifyCopy {
   tags: string[];
 }
 
+/**
+ * `source` names the agent that fired the ping ("Cursor" / "Claude Code") so a
+ * push is attributable when both agents are running in the same project. It is
+ * optional: omitting it reproduces the pre-0.4.0 body exactly.
+ */
 function formatContextBody(
   base: string,
   project: string,
-  chat?: ChatContext | null
+  chat?: ChatContext | null,
+  source?: string | null
 ): string {
   const lines = [base, '', `Project: ${project || 'your project'}`];
+  if (source) {
+    lines.push(`Agent: ${source}`);
+  }
   if (chat?.firstPrompt) {
     lines.push(`Prompt: "${chat.firstPrompt}"`);
   }
@@ -33,7 +42,8 @@ function formatContextBody(
 export function stopMessage(
   status: string | undefined,
   project: string,
-  chat?: ChatContext | null
+  chat?: ChatContext | null,
+  source?: string | null
 ): NotifyCopy {
   const name = project || 'your project';
   const byStatus: Record<string, NotifyCopy> = {
@@ -42,7 +52,8 @@ export function stopMessage(
       message: formatContextBody(
         "Your agent cooked. Task's done 🔥",
         name,
-        chat
+        chat,
+        source
       ),
       priority: 'default',
       tags: ['fire'],
@@ -52,7 +63,8 @@ export function stopMessage(
       message: formatContextBody(
         'Uh oh… your agent hit a snag 😬',
         name,
-        chat
+        chat,
+        source
       ),
       priority: 'high',
       tags: ['rotating_light', 'x'],
@@ -62,7 +74,8 @@ export function stopMessage(
       message: formatContextBody(
         'That run ended early — cancelled or interrupted.',
         name,
-        chat
+        chat,
+        source
       ),
       priority: 'low',
       tags: ['no_entry_sign'],
@@ -76,14 +89,16 @@ export function stopMessage(
  */
 export function permissionMessage(
   project?: string,
-  chat?: ChatContext | null
+  chat?: ChatContext | null,
+  source?: string | null
 ): NotifyCopy {
   return {
     title: '👀 Waiting',
     message: formatContextBody(
       'Hey, your agent needs you',
       project || 'your project',
-      chat
+      chat,
+      source
     ),
     priority: 'urgent',
     tags: ['hand'],
@@ -93,9 +108,10 @@ export function permissionMessage(
 /** @deprecated Use permissionMessage */
 export function needsYouMessage(
   project?: string,
-  chat?: ChatContext | null
+  chat?: ChatContext | null,
+  source?: string | null
 ): NotifyCopy {
-  return permissionMessage(project, chat);
+  return permissionMessage(project, chat, source);
 }
 
 export function testMessage(project: string): NotifyCopy {

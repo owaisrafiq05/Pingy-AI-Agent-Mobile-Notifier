@@ -14,7 +14,6 @@
  * stays open while a command runs is not the same as waiting for approval.
  */
 const path = require('path');
-const fs = require('fs');
 const { sendNotification } = require('./lib/notifier');
 const { stopMessage } = require('./lib/messages');
 const {
@@ -22,6 +21,10 @@ const {
   resolveChatContext,
 } = require('./lib/context');
 const { markPending, clearPending } = require('./lib/state');
+const { loadConfig } = require('./lib/config');
+
+/** Labels the push so you can tell Cursor and Claude Code apart. */
+const SOURCE = 'Cursor';
 
 /**
  * Events that fire immediately before a gate where Cursor may ask the user to
@@ -50,7 +53,7 @@ const RESOLVE_EVENTS = new Set([
   'subagentStop',
 ]);
 
-function loadConfig() {
+function configCandidates() {
   const candidates = [];
   if (process.env.CURSORPING_CONFIG) {
     candidates.push(process.env.CURSORPING_CONFIG);
@@ -66,28 +69,7 @@ function loadConfig() {
     path.join(require('os').homedir(), '.cursor', 'hooks', 'cursorping.config.json'),
     path.join(__dirname, 'cursorping.config.json')
   );
-
-  for (const file of candidates) {
-    try {
-      if (!fs.existsSync(file)) continue;
-      const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
-      const cfg = JSON.parse(raw);
-      if (cfg?.ntfyTopic) {
-        return {
-          ntfyTopic: cfg.ntfyTopic,
-          serverUrl: cfg.serverUrl || 'https://ntfy.sh',
-          pendingTimeoutMs: cfg.pendingTimeoutMs ?? 2000,
-        };
-      }
-    } catch {
-      /* try next */
-    }
-  }
-  return {
-    ntfyTopic: '',
-    serverUrl: 'https://ntfy.sh',
-    pendingTimeoutMs: 2000,
-  };
+  return candidates;
 }
 
 function projectName(workspaceRoots) {
@@ -149,7 +131,7 @@ function gateMeta(eventName, payload) {
 
 async function main() {
   const eventName = process.argv[2] || '';
-  const config = loadConfig();
+  const config = loadConfig(configCandidates());
   const payload = parsePayload(await readStdin());
   const project = projectName(payload.workspace_roots);
 
@@ -167,7 +149,7 @@ async function main() {
       const chat = resolveChatContext(payload);
       await sendNotification(
         config.ntfyTopic,
-        stopMessage(payload.status, project, chat),
+        stopMessage(payload.status, project, chat, SOURCE),
         config.serverUrl
       );
     }
