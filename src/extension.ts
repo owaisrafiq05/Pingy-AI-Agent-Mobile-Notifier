@@ -2,9 +2,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  getAllowUncorroboratedShell,
   getPendingMaxAgeMs,
-  getPendingTimeoutMs,
   getServerUrl,
+  getWaitingAfterMs,
   getWatcherIntervalMs,
   getWorkspaceRoot,
   globalPendingStatePath,
@@ -22,10 +23,12 @@ import {
   parsePendingState,
 } from './pendingState';
 import { TerminalActivityTracker } from './terminalActivity';
+import { UserPresenceTracker } from './userPresence';
 
 let statusBar: StatusBar | undefined;
 let watcherTimer: ReturnType<typeof setInterval> | undefined;
 let terminalActivity: TerminalActivityTracker | undefined;
+let userPresence: UserPresenceTracker | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -113,6 +116,9 @@ export function activate(context: vscode.ExtensionContext): void {
     terminalActivity = new TerminalActivityTracker();
     context.subscriptions.push(terminalActivity);
 
+    userPresence = new UserPresenceTracker();
+    context.subscriptions.push(userPresence);
+
     startPendingWatcher(context);
     context.subscriptions.push({
       dispose: () => {
@@ -137,6 +143,8 @@ export function deactivate(): void {
   }
   terminalActivity?.dispose();
   terminalActivity = undefined;
+  userPresence?.dispose();
+  userPresence = undefined;
 }
 
 function startPendingWatcher(context: vscode.ExtensionContext): void {
@@ -163,12 +171,18 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
     candidates.push(pendingStatePath(root));
   }
 
+  // Deliberately not `config.pendingTimeoutMs`: installs from before this fix
+  // have 2000 baked into cursorping.config.json, and honouring it would keep
+  // pushing "waiting" for auto-run commands after an upgrade.
+  const waitingAfterMs = getWaitingAfterMs();
   const options = {
     now: Date.now(),
-    timeoutMs: config.pendingTimeoutMs ?? getPendingTimeoutMs(),
+    waitingAfterMs,
     maxAgeMs: getPendingMaxAgeMs(),
     isExecuting: terminalActivity?.isExecuting,
-    shellActivityAvailable: terminalActivity?.isSupported === true,
+    shellActivityAvailable: terminalActivity?.isReporting === true,
+    userPresent: userPresence?.isPresent(waitingAfterMs) === true,
+    allowUncorroboratedShell: getAllowUncorroboratedShell(),
   };
 
   let anyWaiting = false;

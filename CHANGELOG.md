@@ -35,6 +35,40 @@ turn.
 - New: `npm run test:e2e` drives the real `claude` CLI against a stub ntfy server,
   so a renamed event or payload field fails a test instead of going unnoticed
 
+### Cursor: no more "waiting for your response" when nothing was asked
+
+Cursor fires its gate events (`preToolUse`, `beforeShellExecution`,
+`beforeMCPExecution`) whether or not you are ever prompted, so an auto-run command
+that took a moment looked exactly like a pending approval. Three things caused the
+false alerts, and all three are fixed:
+
+- **`preToolUse` gates no longer alert at all.** They fire for every tool the agent
+  uses — reads, searches, edits — and Cursor applies those itself, so a slow one
+  meant "busy", never "waiting". The gates Cursor really prompts for (shell, MCP)
+  arrive on their own events, and the hook now records that distinction in
+  `pending.json` as `promptable`
+- **The terminal-activity guard was inert where it mattered.** It trusted its own
+  silence whenever VS Code merely *exposed* the shell-integration API; Cursor's
+  agent terminal frequently reports nothing, so "no command running" was the answer
+  for every command. It now requires having actually observed an execution before
+  its silence counts as evidence
+- **The threshold was 2 seconds** (`pendingTimeoutMs`), far below how long a normal
+  auto-run tool call takes. Replaced by `cursorping.waitingAfterMs`, default 45s —
+  a real prompt waits for a human, so patience costs nothing. `pendingTimeoutMs` is
+  deprecated and no longer affects waiting alerts, including in config files left
+  behind by older installs
+- **New guard: nobody gets buzzed while they are at the window.** A waiting push
+  means "come back to your terminal"; if you are typing in Cursor there is nothing
+  to come back to. Presence is measured from mouse and keyboard signals only —
+  agent edits deliberately do not count, and a window left focused while you walk
+  away goes idle and stops suppressing
+- Shell gates that terminal activity cannot vouch for now stay silent by default,
+  since installs and builds legitimately run for minutes. Set
+  `cursorping.alertOnUnconfirmedShellWaits` to `true` if you never use auto-run and
+  would rather have the alert
+- A generic `preToolUse` gate can no longer overwrite a shell or MCP gate that
+  opened moments earlier, which would have hidden a real prompt from the watcher
+
 ## 0.4.0
 
 - **Claude Code support.** Setup now installs hooks for both agents — `~/.cursor/hooks.json` and `~/.claude/settings.json` — in one run

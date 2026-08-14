@@ -6,22 +6,60 @@ const {
   applyDecision,
   parsePendingState,
   hasNotifiedPending,
+  isPromptableGate,
 } = require('../out/pendingState');
 
-const TIMEOUT = 15000;
+const WAITING_AFTER = 45000;
 const MAX_AGE = 30 * 60 * 1000;
 
+/** A shell gate: the kind Cursor really can stop and ask about. */
 function gate(overrides = {}) {
-  return { ts: 0, notified: false, toolName: 'Shell', command: 'npm test', ...overrides };
+  return {
+    ts: 0,
+    notified: false,
+    event: 'beforeShellExecution',
+    toolName: 'Shell',
+    command: 'npm test',
+    promptable: true,
+    ...overrides,
+  };
 }
 
-function decide(state, now, isExecuting, shellActivityAvailable = true) {
+/** The generic pre-tool gate Cursor fires for reads, searches and edits. */
+function toolGate(overrides = {}) {
+  return gate({
+    event: 'preToolUse',
+    toolName: 'ReadFile',
+    command: null,
+    promptable: false,
+    ...overrides,
+  });
+}
+
+function mcpGate(overrides = {}) {
+  return gate({
+    event: 'beforeMCPExecution',
+    toolName: 'MCP',
+    command: null,
+    promptable: true,
+    ...overrides,
+  });
+}
+
+/**
+ * Defaults describe the one case that is unambiguously a prompt: a shell gate in
+ * a window where terminal activity reports, with nothing running. Tests that care
+ * about weaker evidence override these.
+ */
+function decide(state, now, opts = {}) {
   return decidePending(state, {
     now,
-    timeoutMs: TIMEOUT,
+    waitingAfterMs: WAITING_AFTER,
     maxAgeMs: MAX_AGE,
-    isExecuting,
-    shellActivityAvailable,
+    shellActivityAvailable: true,
+    isExecuting: () => false,
+    userPresent: false,
+    ...opts,
   });
 }
 
@@ -29,65 +67,100 @@ function decide(state, now, isExecuting, shellActivityAvailable = true) {
  * Simulates the extension watcher polling the file the hooks write, so the
  * assertions below count real would-be notifications.
  */
-function runWatcher(state, { from, to, stepMs = 5000, isExecuting, shellActivityAvailable = true } = {}) {
+function runWatcher(state, { from, to, stepMs = 5000, ...opts } = {}) {
   let sent = 0;
   for (let now = from; now <= to; now += stepMs) {
-    const decision = decide(state, now, isExecuting, shellActivityAvailable);
+    const decision = decide(state, now, opts);
     sent += decision.notify.length;
     applyDecision(state, decision);
   }
   return sent;
 }
 
-test('stays quiet while a gate resolves quickly', () => {
-  const state = { conv1: gate({ ts: 0 }) };
-  const sent = runWatcher(state, { from: 0, to: 10000 });
+test('an auto-run command that Cursor never asked about stays silent', () => {
+  // The reported bug. Cursor fires beforeShellExecution whether or not you are
+  // asked, so a command the agent ran on its own used to produce a "waiting for
+  // your response" push as soon as it outlived the old two-second window.
+  const state = { conv1: gate({ ts: 0, command: 'npm run build' }) };
+  const sent = runWatcher(state, {
+    from: 0,
+    to: 10 * 60 * 1000,
+    // Cursor's agent terminal commonly reports no shell integration at all, and
+    // then "nothing is running" is what we hear for every command.
+    shellActivityAvailable: false,
+  });
+  assert.strictEqual(
+    sent,
+    0,
+    'with nothing to corroborate a prompt, a long-running command is just work'
+  );
+});
+
+test('a slow read or search is never a permission prompt', () => {
+  // preToolUse covers every tool the agent uses; Cursor applies those itself.
+  const state = { conv1: toolGate({ ts: 0 }) };
+  const sent = runWatcher(state, {
+    from: 0,
+    to: 10 * 60 * 1000,
+    userPresent: false,
+    shellActivityAvailable: true,
+  });
   assert.strictEqual(sent, 0);
 });
 
-test('notifies once when a gate stays open past the timeout', () => {
+test('stays quiet while a gate resolves quickly', () => {
   const state = { conv1: gate({ ts: 0 }) };
-  const decision = decide(state, TIMEOUT, undefined);
+  const sent = runWatcher(state, { from: 0, to: WAITING_AFTER - 1, stepMs: 1000 });
+  assert.strictEqual(sent, 0);
+});
+
+test('notifies when a shell prompt is corroborated by an idle terminal', () => {
+  const state = { conv1: gate({ ts: 0 }) };
+  assert.deepStrictEqual(decide(state, WAITING_AFTER).notify, ['conv1']);
+});
+
+test('an unconfirmed shell wait can be opted into, and still respects presence', () => {
+  const away = { conv1: gate({ ts: 0 }) };
+  assert.strictEqual(
+    runWatcher(away, {
+      from: 0,
+      to: 120000,
+      shellActivityAvailable: false,
+      allowUncorroboratedShell: true,
+      userPresent: false,
+    }),
+    1,
+    'users who never auto-run can ask for the alert anyway'
+  );
+
+  const watching = { conv1: gate({ ts: 0 }) };
+  assert.strictEqual(
+    runWatcher(watching, {
+      from: 0,
+      to: 120000,
+      shellActivityAvailable: false,
+      allowUncorroboratedShell: true,
+      userPresent: true,
+    }),
+    0,
+    'even opted in, do not buzz someone who is looking at the screen'
+  );
+});
+
+test('stays quiet while the user is sitting at the window', () => {
+  // Whatever the gate is, the person is right there: either nothing is being
+  // asked, or the prompt is on the screen in front of them.
+  const state = { conv1: mcpGate({ ts: 0 }) };
+  const sent = runWatcher(state, { from: 0, to: 10 * 60 * 1000, userPresent: true });
+  assert.strictEqual(sent, 0);
+});
+
+test('presence does not veto hard evidence of a prompt', () => {
+  // Terminal activity reports here and says nothing is running, so this really is
+  // a prompt and the alert is truthful even with the window focused.
+  const state = { conv1: gate({ ts: 0 }) };
+  const decision = decide(state, WAITING_AFTER, { userPresent: true });
   assert.deepStrictEqual(decision.notify, ['conv1']);
-});
-
-test('never notifies twice while the prompt stays open', () => {
-  const state = { conv1: gate({ ts: 0 }) };
-  const sent = runWatcher(state, { from: 0, to: 5 * 60 * 1000 });
-  assert.strictEqual(sent, 1, 'a prompt left open for five minutes must ping once');
-  assert.ok(hasNotifiedPending(state));
-});
-
-test('re-arms for the next request after the user approves', () => {
-  const state = { conv1: gate({ ts: 0 }) };
-  let sent = runWatcher(state, { from: 0, to: 60000 });
-  assert.strictEqual(sent, 1);
-
-  // Approval: the tool runs and postToolUse clears the entry.
-  delete state.conv1;
-  sent += runWatcher(state, { from: 60000, to: 90000 });
-  assert.strictEqual(sent, 1, 'clearing the gate must not itself notify');
-
-  // Next permission request in the same conversation.
-  state.conv1 = gate({ ts: 100000 });
-  sent += runWatcher(state, { from: 100000, to: 160000 });
-  assert.strictEqual(sent, 2, 'the following request gets its own notification');
-});
-
-test('re-arms after the user rejects', () => {
-  const state = { conv1: gate({ ts: 0 }) };
-  assert.strictEqual(runWatcher(state, { from: 0, to: 60000 }), 1);
-
-  // Rejection: postToolUseFailure(permission_denied) clears the entry.
-  delete state.conv1;
-  state.conv1 = gate({ ts: 70000 });
-  assert.strictEqual(runWatcher(state, { from: 70000, to: 130000 }), 1);
-});
-
-test('tracks each conversation independently', () => {
-  const state = { conv1: gate({ ts: 0 }), conv2: gate({ ts: 0 }) };
-  const sent = runWatcher(state, { from: 0, to: 60000 });
-  assert.strictEqual(sent, 2);
 });
 
 test('stays quiet while the command is actually executing', () => {
@@ -98,33 +171,6 @@ test('stays quiet while the command is actually executing', () => {
     isExecuting: (entry) => entry.command === 'npm install',
   });
   assert.strictEqual(sent, 0, 'a slow command is not a permission prompt');
-});
-
-test('stays quiet for shell gates when terminal activity is unavailable', () => {
-  const state = { conv1: gate({ ts: 0, event: 'beforeShellExecution' }) };
-  const sent = runWatcher(state, {
-    from: 0,
-    to: 120000,
-    shellActivityAvailable: false,
-  });
-  assert.strictEqual(
-    sent,
-    0,
-    'without terminal activity, slow auto-run must not look like waiting'
-  );
-});
-
-test('non-shell gates still notify from timeout alone', () => {
-  const state = {
-    conv1: gate({
-      ts: 0,
-      toolName: 'WebSearch',
-      command: null,
-      event: 'preToolUse',
-    }),
-  };
-  const decision = decide(state, TIMEOUT, undefined, false);
-  assert.deepStrictEqual(decision.notify, ['conv1']);
 });
 
 test('notifies once execution corroboration stops matching', () => {
@@ -138,9 +184,61 @@ test('notifies once execution corroboration stops matching', () => {
   assert.strictEqual(sent, 1);
 });
 
+test('an MCP gate needs the user to be away, not a terminal signal', () => {
+  // Terminal activity cannot say anything about an MCP call, so presence is the
+  // only guard — which is why the window is what decides here.
+  const present = { conv1: mcpGate({ ts: 0 }) };
+  assert.strictEqual(
+    runWatcher(present, { from: 0, to: 120000, userPresent: true }),
+    0
+  );
+
+  const away = { conv1: mcpGate({ ts: 0 }) };
+  assert.strictEqual(runWatcher(away, { from: 0, to: 120000, userPresent: false }), 1);
+});
+
+test('never notifies twice while the prompt stays open', () => {
+  const state = { conv1: gate({ ts: 0 }) };
+  const sent = runWatcher(state, { from: 0, to: 10 * 60 * 1000 });
+  assert.strictEqual(sent, 1, 'a prompt left open for ten minutes must ping once');
+  assert.ok(hasNotifiedPending(state));
+});
+
+test('re-arms for the next request after the user approves', () => {
+  const state = { conv1: gate({ ts: 0 }) };
+  let sent = runWatcher(state, { from: 0, to: 120000 });
+  assert.strictEqual(sent, 1);
+
+  // Approval: the tool runs and postToolUse clears the entry.
+  delete state.conv1;
+  sent += runWatcher(state, { from: 120000, to: 180000 });
+  assert.strictEqual(sent, 1, 'clearing the gate must not itself notify');
+
+  // Next permission request in the same conversation.
+  state.conv1 = gate({ ts: 200000 });
+  sent += runWatcher(state, { from: 200000, to: 320000 });
+  assert.strictEqual(sent, 2, 'the following request gets its own notification');
+});
+
+test('re-arms after the user rejects', () => {
+  const state = { conv1: gate({ ts: 0 }) };
+  assert.strictEqual(runWatcher(state, { from: 0, to: 120000 }), 1);
+
+  // Rejection: postToolUseFailure(permission_denied) clears the entry.
+  delete state.conv1;
+  state.conv1 = gate({ ts: 130000 });
+  assert.strictEqual(runWatcher(state, { from: 130000, to: 250000 }), 1);
+});
+
+test('tracks each conversation independently', () => {
+  const state = { conv1: gate({ ts: 0 }), conv2: gate({ ts: 0 }) };
+  const sent = runWatcher(state, { from: 0, to: 120000 });
+  assert.strictEqual(sent, 2);
+});
+
 test('drops abandoned gates instead of notifying forever', () => {
   const state = { conv1: gate({ ts: 0 }) };
-  const decision = decide(state, MAX_AGE + 1, undefined);
+  const decision = decide(state, MAX_AGE + 1);
   assert.deepStrictEqual(decision.notify, []);
   assert.deepStrictEqual(decision.expired, ['conv1']);
 
@@ -150,25 +248,25 @@ test('drops abandoned gates instead of notifying forever', () => {
 
 test('a failed send is retried rather than swallowed', () => {
   const state = { conv1: gate({ ts: 0 }) };
-  const first = decide(state, TIMEOUT, undefined);
+  const first = decide(state, WAITING_AFTER);
   assert.deepStrictEqual(first.notify, ['conv1']);
 
   // Network error: nothing actually went out, so nothing is marked notified.
   applyDecision(state, { notify: [], expired: first.expired });
   assert.strictEqual(state.conv1.notified, false);
 
-  const second = decide(state, TIMEOUT + 5000, undefined);
+  const second = decide(state, WAITING_AFTER + 5000);
   assert.deepStrictEqual(second.notify, ['conv1']);
 });
 
 test('does not mute a new request that opened mid-send', () => {
   const state = { conv1: gate({ ts: 0 }) };
-  const decision = decide(state, TIMEOUT, undefined);
+  const decision = decide(state, WAITING_AFTER);
   assert.deepStrictEqual(decision.notify, ['conv1']);
 
   // While the push was in flight the user approved and the agent hit a second
   // gate, so the hooks replaced the entry with a fresh one.
-  const fresh = { conv1: gate({ ts: TIMEOUT + 500 }) };
+  const fresh = { conv1: gate({ ts: WAITING_AFTER + 500 }) };
   applyDecision(fresh, decision, decision.observedTs);
   assert.strictEqual(
     fresh.conv1.notified,
@@ -176,13 +274,13 @@ test('does not mute a new request that opened mid-send', () => {
     'the replacement gate must still be able to notify'
   );
 
-  const next = decide(fresh, TIMEOUT + 500 + TIMEOUT, undefined);
+  const next = decide(fresh, WAITING_AFTER + 500 + WAITING_AFTER);
   assert.deepStrictEqual(next.notify, ['conv1']);
 });
 
 test('does not resurrect a gate resolved mid-send', () => {
   const state = { conv1: gate({ ts: 0 }) };
-  const decision = decide(state, TIMEOUT, undefined);
+  const decision = decide(state, WAITING_AFTER);
 
   const fresh = {};
   const { changed } = applyDecision(fresh, decision, decision.observedTs);
@@ -199,7 +297,28 @@ test('survives a half-written or corrupt state file', () => {
 
 test('discards entries with a malformed timestamp', () => {
   const state = { conv1: { ts: 'nope' } };
-  const decision = decide(state, 60000, undefined);
+  const decision = decide(state, 60000);
   assert.deepStrictEqual(decision.notify, []);
   assert.deepStrictEqual(decision.expired, ['conv1']);
+});
+
+test('classifies gates written by an older install', () => {
+  // Entries from before the flag existed carry only the event name.
+  assert.strictEqual(isPromptableGate({ ts: 0, event: 'beforeShellExecution' }), true);
+  assert.strictEqual(isPromptableGate({ ts: 0, event: 'beforeMCPExecution' }), true);
+  assert.strictEqual(isPromptableGate({ ts: 0, event: 'preToolUse' }), false);
+  // Older still: no event either.
+  assert.strictEqual(isPromptableGate({ ts: 0, toolName: 'Shell' }), true);
+  assert.strictEqual(isPromptableGate({ ts: 0, toolName: 'ReadFile' }), false);
+  assert.strictEqual(isPromptableGate({ ts: 0 }), false);
+  // The flag wins when present, whatever the event says.
+  assert.strictEqual(
+    isPromptableGate({ ts: 0, event: 'preToolUse', promptable: true }),
+    true
+  );
+});
+
+test('a legacy pre-tool entry does not notify after an upgrade', () => {
+  const state = { conv1: { ts: 0, notified: false, event: 'preToolUse' } };
+  assert.strictEqual(runWatcher(state, { from: 0, to: 10 * 60 * 1000 }), 0);
 });

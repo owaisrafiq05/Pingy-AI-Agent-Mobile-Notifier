@@ -1,5 +1,5 @@
 {
-  "name": "cursorping",
+  "name": "pingy",
   "displayName": "Pingy",
   "description": "Pingy — Get notified when your AI coding agent needs you. Works with Cursor and Claude Code. Your AI coding agent's little notification buddy.",
   "version": "0.4.1",
@@ -56,10 +56,21 @@
           "default": "https://ntfy.sh",
           "description": "ntfy server base URL (use your self-hosted instance if preferred)"
         },
+        "cursorping.waitingAfterMs": {
+          "type": "number",
+          "default": 45000,
+          "description": "Cursor only: how long a shell or MCP gate must stay open before it counts as Cursor waiting for your approval. Cursor fires its gate events whether or not you are asked, so a short window turns ordinary auto-run commands into false \"waiting\" alerts. Lower it only if you never use auto-run."
+        },
+        "cursorping.alertOnUnconfirmedShellWaits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Cursor only: send a waiting alert for a shell command even when terminal activity cannot confirm the command is not running. Off by default because a long auto-run command (install, build, test suite) looks exactly like a pending approval. Turn it on if you never use auto-run and would rather have the alert."
+        },
         "cursorping.pendingTimeoutMs": {
           "type": "number",
           "default": 2000,
-          "description": "Milliseconds an open tool/shell/MCP gate may stay unresolved before it is treated as the Agent waiting for your permission (keep small for near-immediate Run/Skip alerts)"
+          "deprecationMessage": "Superseded by cursorping.waitingAfterMs — this no longer affects waiting alerts.",
+          "description": "Deprecated. Kept so existing settings do not error; use cursorping.waitingAfterMs instead."
         },
         "cursorping.pendingMaxAgeMs": {
           "type": "number",

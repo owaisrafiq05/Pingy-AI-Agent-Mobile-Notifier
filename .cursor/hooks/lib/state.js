@@ -60,6 +60,14 @@ function dropAbandoned(state, now = Date.now()) {
 }
 
 /**
+ * Cursor can fire a generic `preToolUse` gate alongside the specific
+ * `beforeShellExecution` / `beforeMCPExecution` one for the same tool call. Since
+ * only the specific gate is one the user is ever asked about, letting the generic
+ * one overwrite it this soon after would hide a real approval prompt.
+ */
+const PROMPTABLE_HOLD_MS = 3000;
+
+/**
  * Record that the agent reached a gate where Cursor may ask the user to
  * approve something. One entry per conversation: the agent loop blocks on a
  * single gate at a time, and any later event proves it moved on.
@@ -68,14 +76,29 @@ function markPending(conversationId, meta = {}) {
   if (!conversationId) return;
   const state = readState();
   dropAbandoned(state);
+
+  const now = Date.now();
+  const prior = state[conversationId];
+  if (
+    !meta.promptable &&
+    prior?.promptable === true &&
+    typeof prior.ts === 'number' &&
+    now - prior.ts < PROMPTABLE_HOLD_MS
+  ) {
+    // Keep the gate that can actually be waiting on someone.
+    writeState(state);
+    return;
+  }
+
   state[conversationId] = {
-    ts: Date.now(),
+    ts: now,
     notified: false,
     event: meta.event ?? null,
     toolName: meta.toolName ?? null,
     command: meta.command ?? null,
     toolUseId: meta.toolUseId ?? null,
     project: meta.project ?? null,
+    promptable: meta.promptable === true,
   };
   writeState(state);
 }

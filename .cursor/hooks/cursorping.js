@@ -38,6 +38,17 @@ const GATE_EVENTS = new Set([
 ]);
 
 /**
+ * The subset Cursor can actually stop and ask about: running a shell command and
+ * calling an MCP tool.
+ *
+ * `preToolUse` fires for every tool the agent uses — reads, searches, edits —
+ * and Cursor applies those itself, so an open `preToolUse` gate only ever means
+ * "busy". Recording that here (rather than re-deriving it in the extension) keeps
+ * the judgement next to the event names it depends on.
+ */
+const PROMPTABLE_EVENTS = new Set(['beforeShellExecution', 'beforeMCPExecution']);
+
+/**
  * Events that prove the agent is no longer blocked: the user approved (the
  * tool ran), rejected (postToolUseFailure with permission_denied), or the loop
  * moved on for some other reason.
@@ -126,6 +137,7 @@ function gateMeta(eventName, payload) {
     command: typeof command === 'string' ? command : null,
     toolUseId: payload.tool_use_id ?? null,
     project: projectName(payload.workspace_roots),
+    promptable: PROMPTABLE_EVENTS.has(eventName),
   };
 }
 
