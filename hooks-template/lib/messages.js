@@ -1,11 +1,23 @@
 /**
- * Notification copy for Pingy.
+ * Notification copy for Pingy (mirrors src/messages.ts).
  */
 
-function formatContextBody(base, project, chat) {
+/**
+ * `source` names the agent that fired the ping ("Cursor" / "Claude Code") so a
+ * push is attributable when both agents are running in the same project. It is
+ * optional: omitting it reproduces the pre-0.4.0 body exactly.
+ *
+ * `detail` is a caller-formatted line ("Needs: …", "Error: …") appended last.
+ * Claude Code hands the hook the reason it stopped or blocked, and on a phone
+ * that line is the difference between an actionable push and a vague buzz.
+ */
+function formatContextBody(base, project, chat, source, detail) {
   const lines = [base];
   lines.push('');
   lines.push(`Project: ${project || 'your project'}`);
+  if (source) {
+    lines.push(`Agent: ${source}`);
+  }
 
   if (chat?.firstPrompt) {
     lines.push(`Prompt: "${chat.firstPrompt}"`);
@@ -19,10 +31,13 @@ function formatContextBody(base, project, chat) {
   if (!chat?.firstPrompt && !chat?.latestPrompt) {
     lines.push('Prompt: (not available for this run)');
   }
+  if (detail) {
+    lines.push(detail);
+  }
   return lines.join('\n');
 }
 
-function stopMessage(status, project, chat) {
+function stopMessage(status, project, chat, source, detail) {
   const name = project || 'your project';
   const byStatus = {
     completed: {
@@ -30,7 +45,9 @@ function stopMessage(status, project, chat) {
       message: formatContextBody(
         "Your agent cooked. Task's done 🔥",
         name,
-        chat
+        chat,
+        source,
+        detail
       ),
       priority: 'default',
       tags: ['fire'],
@@ -40,7 +57,9 @@ function stopMessage(status, project, chat) {
       message: formatContextBody(
         'Uh oh… your agent hit a snag 😬',
         name,
-        chat
+        chat,
+        source,
+        detail
       ),
       priority: 'high',
       tags: ['rotating_light', 'x'],
@@ -50,7 +69,9 @@ function stopMessage(status, project, chat) {
       message: formatContextBody(
         'That run ended early — cancelled or interrupted.',
         name,
-        chat
+        chat,
+        source,
+        detail
       ),
       priority: 'low',
       tags: ['no_entry_sign'],
@@ -62,13 +83,15 @@ function stopMessage(status, project, chat) {
 /**
  * Sent when the agent is blocked on an approval prompt.
  */
-function permissionMessage(project, chat) {
+function permissionMessage(project, chat, source, detail) {
   return {
     title: '👀 Waiting',
     message: formatContextBody(
       'Hey, your agent needs you',
       project || 'your project',
-      chat
+      chat,
+      source,
+      detail
     ),
     priority: 'urgent',
     tags: ['hand'],
@@ -76,8 +99,8 @@ function permissionMessage(project, chat) {
 }
 
 /** @deprecated Use permissionMessage */
-function needsYouMessage(project, chat) {
-  return permissionMessage(project, chat);
+function needsYouMessage(project, chat, source) {
+  return permissionMessage(project, chat, source);
 }
 
 function testMessage(project) {

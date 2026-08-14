@@ -12,7 +12,7 @@ import {
   readActiveConfig,
 } from './config';
 import { showPairingQr } from './pairing';
-import { runSetupWizard } from './setupWizard';
+import { runClaudeSetup, runSetupWizard } from './setupWizard';
 import { StatusBar } from './statusBar';
 import { permissionMessage, testMessage } from './messages';
 import {
@@ -32,9 +32,24 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('cursorping.setup', async () => {
       try {
         const topic = await runSetupWizard(context);
+
+        // Claude Code shares the same topic. Its install is independent of
+        // Cursor's, so a failure here must not undo working Cursor setup.
+        let claudeOk = true;
+        try {
+          await runClaudeSetup(context, topic);
+        } catch (e) {
+          claudeOk = false;
+          const msg = e instanceof Error ? e.message : String(e);
+          vscode.window.showWarningMessage(
+            `Pingy: Cursor hooks installed, but Claude Code setup failed: ${msg}`
+          );
+        }
+
         statusBar?.setReady(topic);
+        const agents = claudeOk ? 'Cursor and Claude Code' : 'Cursor';
         const showQr = await vscode.window.showInformationMessage(
-          `Pingy is set up for all projects. Subscribe to "${topic}" in the ntfy app (once).`,
+          `Pingy is set up for ${agents}, in every project. Subscribe to "${topic}" in the ntfy app (once).`,
           'Show Pairing'
         );
         if (showQr === 'Show Pairing') {
@@ -205,7 +220,9 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
           entry?.project || (root ? path.basename(root) : 'your project');
         await sendNtfy(
           config.ntfyTopic,
-          permissionMessage(projectName),
+          // The watcher only ever observes Cursor gates; Claude Code pushes
+          // its own waiting alerts straight from the hook.
+          permissionMessage(projectName, null, 'Cursor'),
           config.serverUrl || getServerUrl()
         );
         await context.globalState.update('cursorping.lastStatus', 'needs_approval');

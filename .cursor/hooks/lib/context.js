@@ -74,64 +74,100 @@ function truncate(text, max = 180) {
 }
 
 /**
- * Pull the first user message text from a Cursor transcript jsonl file.
+ * Text of one transcript line, if it is something the user typed.
+ *
+ * Cursor tags the row itself (`{role:"user", message:{content:[…]}}`); Claude
+ * Code tags it with `type` and nests the role (`{type:"user", message:{role,
+ * content}}`), where `content` may be a bare string. Reading only Cursor's shape
+ * is why Claude Code pushes used to say "Prompt: (not available for this run)"
+ * whenever prompts.json had no entry — a resumed session, or an install that
+ * happened mid-session.
+ */
+function userTextFromTranscriptRow(row) {
+  if (!row || typeof row !== 'object') return null;
+
+  const isUser =
+    row.role === 'user' || row.type === 'user' || row.message?.role === 'user';
+  if (!isUser) return null;
+
+  // Tool results and harness injections ride in on user-role rows. They are not
+  // what the user asked for, and `firstPrompt` is sticky once stored.
+  if (row.isMeta || row.isCompactSummary || row.toolUseResult !== undefined) {
+    return null;
+  }
+
+  const content = row.message?.content ?? row.content;
+  let text = null;
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    if (content.some((p) => p && p.type === 'tool_result')) return null;
+    text = content
+      .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text)
+      .join('\n');
+  }
+
+  const cleaned = cleanPromptText(text);
+  if (!cleaned || isInjectedPrompt(cleaned)) return null;
+  return cleaned;
+}
+
+/** Harness-injected turns look like user messages but nobody typed them. */
+function isInjectedPrompt(text) {
+  const head = String(text || '').trimStart().slice(0, 40).toLowerCase();
+  return [
+    '<task-notification',
+    '<system-reminder',
+    '<local-command-stdout',
+    '<local-command-stderr',
+    '<command-name',
+    '<command-message',
+    '<user-prompt-submit-hook',
+    'caveat: the messages below were generated',
+  ].some((prefix) => head.startsWith(prefix));
+}
+
+function readTranscriptRows(transcriptPath) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return [];
+  try {
+    return fs
+      .readFileSync(transcriptPath, 'utf8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pull the first user message text from a transcript jsonl file.
  */
 function firstUserPromptFromTranscript(transcriptPath) {
-  if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
-  try {
-    const raw = fs.readFileSync(transcriptPath, 'utf8');
-    const lines = raw.split(/\r?\n/).filter(Boolean);
-    for (const line of lines) {
-      let row;
-      try {
-        row = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (row.role !== 'user') continue;
-      const parts = row.message?.content;
-      if (!Array.isArray(parts)) continue;
-      const texts = parts
-        .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
-        .map((p) => p.text);
-      const cleaned = cleanPromptText(texts.join('\n'));
-      if (cleaned) return cleaned;
-    }
-  } catch {
-    return null;
+  for (const row of readTranscriptRows(transcriptPath)) {
+    const text = userTextFromTranscriptRow(row);
+    if (text) return text;
   }
   return null;
 }
 
 /**
- * Latest user message from transcript (last user role line).
+ * Latest user message from transcript (last user row).
  */
 function latestUserPromptFromTranscript(transcriptPath) {
-  if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
-  try {
-    const raw = fs.readFileSync(transcriptPath, 'utf8');
-    const lines = raw.split(/\r?\n/).filter(Boolean);
-    let latest = null;
-    for (const line of lines) {
-      let row;
-      try {
-        row = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (row.role !== 'user') continue;
-      const parts = row.message?.content;
-      if (!Array.isArray(parts)) continue;
-      const texts = parts
-        .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
-        .map((p) => p.text);
-      const cleaned = cleanPromptText(texts.join('\n'));
-      if (cleaned) latest = cleaned;
-    }
-    return latest;
-  } catch {
-    return null;
+  let latest = null;
+  for (const row of readTranscriptRows(transcriptPath)) {
+    const text = userTextFromTranscriptRow(row);
+    if (text) latest = text;
   }
+  return latest;
 }
 
 /**
@@ -164,6 +200,8 @@ module.exports = {
   clearStoredPrompts,
   resolveChatContext,
   cleanPromptText,
+  isInjectedPrompt,
   truncate,
   firstUserPromptFromTranscript,
+  latestUserPromptFromTranscript,
 };

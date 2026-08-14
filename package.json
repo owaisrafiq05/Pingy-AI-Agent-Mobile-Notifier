@@ -1,8 +1,8 @@
 {
   "name": "cursorping",
   "displayName": "Pingy",
-  "description": "Pingy — Get notified when your AI coding agent needs you. Your AI coding agent's little notification buddy.",
-  "version": "0.3.5",
+  "description": "Pingy — Get notified when your AI coding agent needs you. Works with Cursor and Claude Code. Your AI coding agent's little notification buddy.",
+  "version": "0.4.1",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
@@ -17,6 +17,9 @@
   ],
   "keywords": [
     "cursor",
+    "claude",
+    "claude-code",
+    "anthropic",
     "agent",
     "ntfy",
     "notifications",
@@ -34,7 +37,7 @@
     "commands": [
       {
         "command": "cursorping.setup",
-        "title": "Pingy: Run Setup (once for all projects)"
+        "title": "Pingy: Run Setup (once for all agents and projects)"
       },
       {
         "command": "cursorping.sendTest",
@@ -63,6 +66,11 @@
           "default": 1800000,
           "description": "Milliseconds after which an unresolved gate is treated as abandoned (Cursor restarted, agent crashed) instead of waiting"
         },
+        "cursorping.waitingRepingMs": {
+          "type": "number",
+          "default": 300000,
+          "description": "Claude Code only: how long one \"your agent needs you\" push covers a session. Claude Code raises a notification for every approval dialog, so repeats inside this window are suppressed. Lower it if you want a ping for each prompt."
+        },
         "cursorping.watcherIntervalMs": {
           "type": "number",
           "default": 1000,
@@ -76,7 +84,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test \"test/**/*.test.js\"",
-    "package": "npx @vscode/vsce package"
+    "package": "npx @vscode/vsce package",
+    "test:e2e": "node test/e2e/claudeCli.e2e.js"
   },
   "dependencies": {
     "qrcode": "^1.5.4"

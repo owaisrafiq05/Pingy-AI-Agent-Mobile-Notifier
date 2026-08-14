@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.4.1
+
+Fixes the Claude Code notifications shipped in 0.4.0. Measured against a real
+session: 23 "Waiting" pushes in 16 minutes of ordinary work, all for the same
+turn.
+
+- **No more waiting-alert spam.** Claude Code raises a `Notification` for every
+  approval dialog, and in `default` permission mode a single turn opens one per
+  tool call. A waiting push means "come back to your terminal", so it now fires
+  once per turn — re-armed by your next prompt, by the turn ending, or after
+  `cursorping.waitingRepingMs` (default 5 minutes) if the agent is still blocked
+- **No more "your agent needs you" right after "task's done".** Claude Code emits
+  `idle_prompt` 60 seconds after a turn ends; that is the state the completion
+  push already reported, so it is now suppressed once a turn has been reported done
+- **Waiting pushes say what is needed** — Claude Code's own text ("Claude needs
+  your permission to use Bash") is carried into the body as a `Needs:` line, and
+  `StopFailure` pushes name the error (`Error: rate_limit — …`)
+- Waiting alerts now also cover `worker_permission_prompt` and the MCP
+  `elicitation_dialog` / `elicitation_url_dialog` cases, which block the agent on
+  you just as much as a tool approval did
+- A turn that stops twice (a Stop hook forcing the agent onward, background work
+  waking the session) is one completion push, not two
+- A completion that leaves background work running says so instead of claiming
+  the session is idle
+- Prompt context no longer reads "(not available for this run)" on resumed
+  sessions: the transcript reader understands Claude Code's `{type:"user",
+  message:{role,content}}` shape, string content included, and skips tool results
+  and injected turns
+- A `Stop` payload of `null` no longer exits 1 out of the hook, which Claude Code
+  surfaces as a hook error in the terminal
+- When Claude Code reports a machine-driven turn source (`/loop` ticks, scheduled
+  wake-ups), those turns no longer push a completion; a blocked one still pushes
+- New: `npm run test:e2e` drives the real `claude` CLI against a stub ntfy server,
+  so a renamed event or payload field fails a test instead of going unnoticed
+
+## 0.4.0
+
+- **Claude Code support.** Setup now installs hooks for both agents — `~/.cursor/hooks.json` and `~/.claude/settings.json` — in one run
+- Both agents publish to the **same ntfy topic**, so existing users get Claude Code notifications without re-pairing or a second subscription
+- Claude Code waiting alerts come from its real `Notification` event (`permission_prompt` / `idle_prompt` / `agent_needs_input`), so there is no timeout heuristic and no false "waiting" pings — none of Cursor's pending-gate machinery runs on the Claude path
+- Completion via `Stop`, errors via `StopFailure`, prompt context via `UserPromptSubmit`
+- Notification bodies gain an `Agent:` line (`Cursor` / `Claude Code`) so a push is attributable when both agents run in the same project
+- `~/.claude/settings.json` is merged, never overwritten: unrelated settings and other tools' hooks survive, re-running setup never stacks duplicates, and an unreadable file is backed up to `settings.json.bak-<timestamp>`
+- The Claude hook never writes to stdout and always exits 0 — exit code 2 would block the agent, and `UserPromptSubmit` stdout would be injected into the model's context
+- Harness-injected turns (background task notifications, system reminders, slash-command output) are no longer stored as "the prompt"; because the first prompt is sticky, one of these would otherwise head every push for the rest of the session. Stored prompts are also capped so the state file cannot grow unbounded
+- Hooks are loaded when a Claude Code session starts, so **restart Claude Code after running setup** — the README and setup message both call this out
+- README documents a manual install for Claude Code CLI users who don't run the extension
+
 ## 0.3.5
 
 - Refresh marketplace README: clear Getting Started steps, agent logos, star/contribute section

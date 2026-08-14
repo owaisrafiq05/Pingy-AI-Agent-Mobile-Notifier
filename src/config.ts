@@ -7,11 +7,14 @@ export interface CursorPingConfig {
   ntfyTopic: string;
   serverUrl: string;
   pendingTimeoutMs: number;
+  waitingRepingMs?: number;
 }
 
 const DEFAULT_SERVER = 'https://ntfy.sh';
 /** Short enough to feel immediate on a Run/Skip prompt; long enough that allowlisted commands usually clear first. */
 const DEFAULT_TIMEOUT = 2000;
+/** One "your agent needs you" push covers a session for this long. */
+const DEFAULT_WAITING_REPING = 5 * 60 * 1000;
 
 export function getServerUrl(): string {
   return (
@@ -24,6 +27,18 @@ export function getPendingTimeoutMs(): number {
   return (
     vscode.workspace.getConfiguration('cursorping').get<number>('pendingTimeoutMs') ??
     DEFAULT_TIMEOUT
+  );
+}
+
+/**
+ * Claude Code fires one notification per blocking dialog, and an ordinary turn in
+ * `default` permission mode opens many. The push means "come back to your
+ * terminal", so repeats inside this window add nothing.
+ */
+export function getWaitingRepingMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('waitingRepingMs') ??
+    DEFAULT_WAITING_REPING
   );
 }
 
@@ -67,6 +82,31 @@ export function globalHooksJsonPath(): string {
   return path.join(cursorUserDir(), 'hooks.json');
 }
 
+/** Claude Code user config root: ~/.claude (applies to every project). */
+export function claudeUserDir(): string {
+  return path.join(os.homedir(), '.claude');
+}
+
+/**
+ * Hook scripts live in their own subdirectory so they never collide with other
+ * tools' hooks under ~/.claude/hooks.
+ */
+export function claudeHooksDir(): string {
+  return path.join(claudeUserDir(), 'hooks', 'pingy');
+}
+
+export function claudeConfigPath(): string {
+  return path.join(claudeHooksDir(), 'cursorping.config.json');
+}
+
+/**
+ * Unlike ~/.cursor/hooks.json this file holds real user settings (theme, update
+ * channel, permissions), so it must be merged into, never overwritten.
+ */
+export function claudeSettingsPath(): string {
+  return path.join(claudeUserDir(), 'settings.json');
+}
+
 export function readGlobalConfig(): CursorPingConfig | undefined {
   const file = globalConfigPath();
   try {
@@ -78,6 +118,7 @@ export function readGlobalConfig(): CursorPingConfig | undefined {
       ntfyTopic: raw.ntfyTopic ?? '',
       serverUrl: raw.serverUrl ?? getServerUrl(),
       pendingTimeoutMs: raw.pendingTimeoutMs ?? getPendingTimeoutMs(),
+      waitingRepingMs: raw.waitingRepingMs ?? getWaitingRepingMs(),
     };
   } catch {
     return undefined;
@@ -120,6 +161,7 @@ export function readWorkspaceConfig(workspaceRoot: string): CursorPingConfig | u
       ntfyTopic: raw.ntfyTopic ?? '',
       serverUrl: raw.serverUrl ?? getServerUrl(),
       pendingTimeoutMs: raw.pendingTimeoutMs ?? getPendingTimeoutMs(),
+      waitingRepingMs: raw.waitingRepingMs ?? getWaitingRepingMs(),
     };
   } catch {
     return undefined;
