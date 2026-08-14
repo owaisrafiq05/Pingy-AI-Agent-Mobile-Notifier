@@ -92,7 +92,7 @@ cp -r Pingy-AI-Agent-Mobile-Notifier/hooks-template/* ~/.claude/hooks/pingy/
       { "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" UserPromptSubmit", "timeout": 10 }] }
     ],
     "Notification": [
-      { "matcher": "permission_prompt|idle_prompt|agent_needs_input",
+      { "matcher": "permission_prompt|worker_permission_prompt|agent_needs_input|idle_prompt|elicitation_dialog|elicitation_url_dialog",
         "hooks": [{ "type": "command", "command": "node \"<ABS>/pingy-claude.js\" Notification", "timeout": 10 }] }
     ],
     "Stop": [
@@ -114,7 +114,19 @@ To test without waiting for a real task:
 
 ```bash
 echo '{"session_id":"t1","cwd":"'"$PWD"'"}' | node ~/.claude/hooks/pingy/pingy-claude.js Stop
+echo '{"session_id":"t1","cwd":"'"$PWD"'","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' \
+  | node ~/.claude/hooks/pingy/pingy-claude.js Notification
 ```
+
+### How often Claude Code waiting alerts fire
+
+Claude Code raises a notification for *every* approval dialog, and in `default`
+permission mode a single turn opens one per tool call. Pingy sends one waiting
+push per turn instead of one per dialog — enough to tell you to come back to your
+terminal, without a buzz for every prompt. It re-arms when you send your next
+prompt, when the turn ends, or after 5 minutes if the agent is still blocked. Set
+`cursorping.waitingRepingMs` (extension settings) or `waitingRepingMs` in
+`~/.claude/hooks/pingy/cursorping.config.json` to change that window.
 
 ---
 
@@ -132,7 +144,7 @@ echo '{"session_id":"t1","cwd":"'"$PWD"'"}' | node ~/.claude/hooks/pingy/pingy-c
 | Waiting | 👀 Waiting | Hey, your agent needs you |
 | Error | 🚨 Error | Uh oh… your agent hit a snag 😬 |
 
-Each notification also includes **Project**, **Agent** (`Cursor` or `Claude Code`), and **Prompt** when available.
+Each notification also includes **Project**, **Agent** (`Cursor` or `Claude Code`), and **Prompt** when available. On Claude Code the push also carries what the agent is waiting for (`Needs: Claude needs your permission to use Bash`) or what broke (`Error: rate_limit`).
 
 ## Supported agents
 

@@ -7,11 +7,14 @@ export interface CursorPingConfig {
   ntfyTopic: string;
   serverUrl: string;
   pendingTimeoutMs: number;
+  waitingRepingMs?: number;
 }
 
 const DEFAULT_SERVER = 'https://ntfy.sh';
 /** Short enough to feel immediate on a Run/Skip prompt; long enough that allowlisted commands usually clear first. */
 const DEFAULT_TIMEOUT = 2000;
+/** One "your agent needs you" push covers a session for this long. */
+const DEFAULT_WAITING_REPING = 5 * 60 * 1000;
 
 export function getServerUrl(): string {
   return (
@@ -24,6 +27,18 @@ export function getPendingTimeoutMs(): number {
   return (
     vscode.workspace.getConfiguration('cursorping').get<number>('pendingTimeoutMs') ??
     DEFAULT_TIMEOUT
+  );
+}
+
+/**
+ * Claude Code fires one notification per blocking dialog, and an ordinary turn in
+ * `default` permission mode opens many. The push means "come back to your
+ * terminal", so repeats inside this window add nothing.
+ */
+export function getWaitingRepingMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('waitingRepingMs') ??
+    DEFAULT_WAITING_REPING
   );
 }
 
@@ -103,6 +118,7 @@ export function readGlobalConfig(): CursorPingConfig | undefined {
       ntfyTopic: raw.ntfyTopic ?? '',
       serverUrl: raw.serverUrl ?? getServerUrl(),
       pendingTimeoutMs: raw.pendingTimeoutMs ?? getPendingTimeoutMs(),
+      waitingRepingMs: raw.waitingRepingMs ?? getWaitingRepingMs(),
     };
   } catch {
     return undefined;
@@ -145,6 +161,7 @@ export function readWorkspaceConfig(workspaceRoot: string): CursorPingConfig | u
       ntfyTopic: raw.ntfyTopic ?? '',
       serverUrl: raw.serverUrl ?? getServerUrl(),
       pendingTimeoutMs: raw.pendingTimeoutMs ?? getPendingTimeoutMs(),
+      waitingRepingMs: raw.waitingRepingMs ?? getWaitingRepingMs(),
     };
   } catch {
     return undefined;

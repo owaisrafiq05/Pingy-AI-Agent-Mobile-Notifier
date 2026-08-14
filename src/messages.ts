@@ -16,12 +16,17 @@ export interface NotifyCopy {
  * `source` names the agent that fired the ping ("Cursor" / "Claude Code") so a
  * push is attributable when both agents are running in the same project. It is
  * optional: omitting it reproduces the pre-0.4.0 body exactly.
+ *
+ * `detail` is a caller-formatted line ("Needs: …", "Error: …") appended last.
+ * Claude Code hands the hook the reason it stopped or blocked, and on a phone
+ * that line is the difference between an actionable push and a vague buzz.
  */
 function formatContextBody(
   base: string,
   project: string,
   chat?: ChatContext | null,
-  source?: string | null
+  source?: string | null,
+  detail?: string | null
 ): string {
   const lines = [base, '', `Project: ${project || 'your project'}`];
   if (source) {
@@ -36,6 +41,9 @@ function formatContextBody(
   if (!chat?.firstPrompt && !chat?.latestPrompt) {
     lines.push('Prompt: (not available for this run)');
   }
+  if (detail) {
+    lines.push(detail);
+  }
   return lines.join('\n');
 }
 
@@ -43,7 +51,8 @@ export function stopMessage(
   status: string | undefined,
   project: string,
   chat?: ChatContext | null,
-  source?: string | null
+  source?: string | null,
+  detail?: string | null
 ): NotifyCopy {
   const name = project || 'your project';
   const byStatus: Record<string, NotifyCopy> = {
@@ -53,7 +62,8 @@ export function stopMessage(
         "Your agent cooked. Task's done 🔥",
         name,
         chat,
-        source
+        source,
+        detail
       ),
       priority: 'default',
       tags: ['fire'],
@@ -64,7 +74,8 @@ export function stopMessage(
         'Uh oh… your agent hit a snag 😬',
         name,
         chat,
-        source
+        source,
+        detail
       ),
       priority: 'high',
       tags: ['rotating_light', 'x'],
@@ -75,7 +86,8 @@ export function stopMessage(
         'That run ended early — cancelled or interrupted.',
         name,
         chat,
-        source
+        source,
+        detail
       ),
       priority: 'low',
       tags: ['no_entry_sign'],
@@ -90,7 +102,8 @@ export function stopMessage(
 export function permissionMessage(
   project?: string,
   chat?: ChatContext | null,
-  source?: string | null
+  source?: string | null,
+  detail?: string | null
 ): NotifyCopy {
   return {
     title: '👀 Waiting',
@@ -98,7 +111,8 @@ export function permissionMessage(
       'Hey, your agent needs you',
       project || 'your project',
       chat,
-      source
+      source,
+      detail
     ),
     priority: 'urgent',
     tags: ['hand'],

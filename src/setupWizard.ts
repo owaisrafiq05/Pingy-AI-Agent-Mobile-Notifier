@@ -8,6 +8,7 @@ import {
   claudeSettingsPath,
   getPendingTimeoutMs,
   getServerUrl,
+  getWaitingRepingMs,
   globalConfigPath,
   globalHooksDir,
   globalHooksJsonPath,
@@ -110,9 +111,21 @@ function mergeUserHooksJson(hooksJsonPath: string): void {
  */
 export const CLAUDE_EVENTS: Array<{ event: string; matcher?: string }> = [
   { event: 'UserPromptSubmit' },
-  // Everything else Notification emits (auth, elicitation, agent_completed) is
-  // either noise or already covered by Stop.
-  { event: 'Notification', matcher: 'permission_prompt|idle_prompt|agent_needs_input' },
+  // On `Notification` the matcher is tested against `notification_type`, so this
+  // list is exactly the set of dialogs that block the agent on the user. The
+  // hook filters again on its own — a build that omits `notification_type`
+  // bypasses matchers entirely and would otherwise push for auth notices too.
+  {
+    event: 'Notification',
+    matcher: [
+      'permission_prompt',
+      'worker_permission_prompt',
+      'agent_needs_input',
+      'idle_prompt',
+      'elicitation_dialog',
+      'elicitation_url_dialog',
+    ].join('|'),
+  },
   { event: 'Stop' },
   { event: 'StopFailure' },
   { event: 'SessionEnd' },
@@ -220,6 +233,7 @@ export async function runClaudeSetup(
         ntfyTopic: topic,
         serverUrl: getServerUrl(),
         pendingTimeoutMs: getPendingTimeoutMs(),
+        waitingRepingMs: getWaitingRepingMs(),
       },
       null,
       2

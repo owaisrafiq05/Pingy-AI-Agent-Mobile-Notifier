@@ -113,10 +113,42 @@ test('registers every event with an absolute, quoted command', async (t) => {
   const notification = settings.hooks.Notification.find((g) =>
     (g.hooks ?? []).some((h) => (h.command ?? '').includes('pingy-claude.js'))
   );
-  assert.strictEqual(
-    notification.matcher,
-    'permission_prompt|idle_prompt|agent_needs_input'
+  assert.deepStrictEqual(notification.matcher.split('|').sort(), [
+    'agent_needs_input',
+    'elicitation_dialog',
+    'elicitation_url_dialog',
+    'idle_prompt',
+    'permission_prompt',
+    'worker_permission_prompt',
+  ]);
+  // On Notification the matcher is tested against `notification_type`. Claude
+  // Code only takes the plain alternation fast path for this character set —
+  // anything else is compiled as a regex, where `_` boundaries stop being exact.
+  assert.match(notification.matcher, /^[A-Za-z0-9_|]+$/);
+});
+
+test('the settings matcher does not filter out a type the hook handles', async (t) => {
+  // The matcher is the first gate and the hook is the second. If they disagree,
+  // the stricter one wins silently — a blocked agent with no push.
+  const home = withFakeHome(t);
+  await runClaudeSetup(context, 'pingy-abc12345');
+
+  const notification = readSettings(home).hooks.Notification.find((g) =>
+    (g.hooks ?? []).some((h) => (h.command ?? '').includes('pingy-claude.js'))
   );
+
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'hooks-template', 'pingy-claude.js'),
+    'utf8'
+  );
+  const block = source.slice(
+    source.indexOf('const WAITING_TYPES'),
+    source.indexOf(']);', source.indexOf('const WAITING_TYPES'))
+  );
+  const handled = [...block.matchAll(/\['([a-z_]+)',/g)].map((m) => m[1]);
+
+  assert.ok(handled.length >= 6, 'sanity: found the type list in the hook');
+  assert.deepStrictEqual(notification.matcher.split('|').sort(), handled.sort());
 });
 
 test('a home directory containing spaces stays quoted', async (t) => {

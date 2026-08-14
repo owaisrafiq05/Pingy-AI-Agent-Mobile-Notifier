@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.1
+
+Fixes the Claude Code notifications shipped in 0.4.0. Measured against a real
+session: 23 "Waiting" pushes in 16 minutes of ordinary work, all for the same
+turn.
+
+- **No more waiting-alert spam.** Claude Code raises a `Notification` for every
+  approval dialog, and in `default` permission mode a single turn opens one per
+  tool call. A waiting push means "come back to your terminal", so it now fires
+  once per turn — re-armed by your next prompt, by the turn ending, or after
+  `cursorping.waitingRepingMs` (default 5 minutes) if the agent is still blocked
+- **No more "your agent needs you" right after "task's done".** Claude Code emits
+  `idle_prompt` 60 seconds after a turn ends; that is the state the completion
+  push already reported, so it is now suppressed once a turn has been reported done
+- **Waiting pushes say what is needed** — Claude Code's own text ("Claude needs
+  your permission to use Bash") is carried into the body as a `Needs:` line, and
+  `StopFailure` pushes name the error (`Error: rate_limit — …`)
+- Waiting alerts now also cover `worker_permission_prompt` and the MCP
+  `elicitation_dialog` / `elicitation_url_dialog` cases, which block the agent on
+  you just as much as a tool approval did
+- A turn that stops twice (a Stop hook forcing the agent onward, background work
+  waking the session) is one completion push, not two
+- A completion that leaves background work running says so instead of claiming
+  the session is idle
+- Prompt context no longer reads "(not available for this run)" on resumed
+  sessions: the transcript reader understands Claude Code's `{type:"user",
+  message:{role,content}}` shape, string content included, and skips tool results
+  and injected turns
+- A `Stop` payload of `null` no longer exits 1 out of the hook, which Claude Code
+  surfaces as a hook error in the terminal
+- When Claude Code reports a machine-driven turn source (`/loop` ticks, scheduled
+  wake-ups), those turns no longer push a completion; a blocked one still pushes
+- New: `npm run test:e2e` drives the real `claude` CLI against a stub ntfy server,
+  so a renamed event or payload field fails a test instead of going unnoticed
+
 ## 0.4.0
 
 - **Claude Code support.** Setup now installs hooks for both agents — `~/.cursor/hooks.json` and `~/.claude/settings.json` — in one run

@@ -12,6 +12,8 @@ const DEFAULTS = {
   ntfyTopic: '',
   serverUrl: 'https://ntfy.sh',
   pendingTimeoutMs: 2000,
+  /** How long one "your agent needs you" push covers a session. */
+  waitingRepingMs: 5 * 60 * 1000,
 };
 
 /**
@@ -34,6 +36,7 @@ function loadConfig(candidates = []) {
           ntfyTopic: cfg.ntfyTopic,
           serverUrl: cfg.serverUrl || DEFAULTS.serverUrl,
           pendingTimeoutMs: cfg.pendingTimeoutMs ?? DEFAULTS.pendingTimeoutMs,
+          waitingRepingMs: cfg.waitingRepingMs ?? DEFAULTS.waitingRepingMs,
         };
       }
     } catch {

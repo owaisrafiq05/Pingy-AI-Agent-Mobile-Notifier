@@ -12,47 +12,81 @@
  * context, so this script stays silent there (unlike the Cursor entrypoint,
  * which answers `beforeSubmitPrompt` with `{"continue":true}`).
  *
- * Unlike Cursor, Claude Code has a real `Notification` event that fires exactly
- * when the agent is blocked on you. That means none of the pending-gate state
- * machine (lib/state.js, the extension watcher, terminal corroboration) is
- * needed here — we push directly and there is no timing heuristic to get wrong.
+ * Two pushes matter, and Claude Code names both of them for us:
+ *
+ *   done    → `Stop` (turn ended) / `StopFailure` (turn died on an API error)
+ *   waiting → `Notification`, whose `notification_type` says which dialog opened
+ *
+ * so none of Cursor's pending-gate state machine (lib/state.js, the extension
+ * watcher, terminal corroboration) is needed here. What *is* needed is restraint:
+ * Claude Code fires a `Notification` per dialog, and in `default` permission mode
+ * an ordinary turn opens a dozen. lib/claudeState.js collapses those into one
+ * "come back to your terminal" push per turn and keeps the 60s-idle notice from
+ * contradicting a completion push. See that file for the rules.
  */
 const os = require('os');
 const path = require('path');
-const fs = require('fs');
 const { sendNotification } = require('./lib/notifier');
 const { stopMessage, permissionMessage } = require('./lib/messages');
 const {
   rememberPrompt,
   clearStoredPrompts,
   resolveChatContext,
+  truncate,
 } = require('./lib/context');
 const { loadConfig } = require('./lib/config');
+const {
+  DEFAULT_REPING_MS,
+  claimStop,
+  claimWaiting,
+  forgetSession,
+  noteTurnStart,
+  pruneSessions,
+  readSessions,
+  turnIsMachineDriven,
+  writeSessions,
+} = require('./lib/claudeState');
 
 /** Labels the push so you can tell Cursor and Claude Code apart. */
 const SOURCE = 'Claude Code';
 
 /**
- * Notification types that mean "the agent cannot continue without you".
+ * Notification types that mean "the agent cannot continue without you", mapped
+ * to the phrasing used when Claude Code sends no message of its own.
+ *
+ * `permission_prompt` covers every blocking dialog in the main session — tool
+ * approval, plan approval, a question the agent asked. `worker_permission_prompt`
+ * is the same thing raised by a teammate session, and the elicitation dialogs are
+ * an MCP server asking the user directly.
+ *
  * `agent_completed` is deliberately excluded — `Stop` already covers that and
- * handling both would double-push. Auth and elicitation notices are noise.
+ * handling both would double-push. `auth_success`, `push_notification` and the
+ * computer-use notices are not blocks.
  */
-const WAITING_TYPES = new Set([
-  'permission_prompt',
-  'idle_prompt',
-  'agent_needs_input',
+const WAITING_TYPES = new Map([
+  ['permission_prompt', 'Claude needs your approval'],
+  ['worker_permission_prompt', 'A teammate session needs your approval'],
+  ['agent_needs_input', 'Claude needs your input'],
+  ['idle_prompt', 'Claude is waiting for your input'],
+  ['elicitation_dialog', 'An MCP server needs your input'],
+  ['elicitation_url_dialog', 'An MCP server needs you to open a URL'],
 ]);
 
 /**
- * UserPromptSubmit also fires for turns the harness injects — background task
- * notifications, system reminders, slash-command output. Those are not what the
- * user typed, and storing one is worse than storing nothing: `firstPrompt` is
+ * `UserPromptSubmit.source` names who authored the turn. Anything other than a
+ * person at the keyboard ("user") or a headless run ("sdk") is the harness
+ * talking to itself — background-task notices, system reminders, slash-command
+ * output — and storing one is worse than storing nothing: `firstPrompt` is
  * sticky, so a wall of XML would head every push for the rest of the session.
  */
+const TYPED_PROMPT_SOURCES = new Set(['user', 'sdk']);
+
+/** Older Claude Code builds omit `source`; fall back to sniffing the text. */
 const INJECTED_PREFIXES = [
   '<task-notification',
   '<system-reminder',
   '<local-command-stdout',
+  '<local-command-stderr',
   '<command-name',
   '<command-message',
 ];
@@ -60,9 +94,13 @@ const INJECTED_PREFIXES = [
 /** Longest prompt worth persisting; the body truncates to 180 chars anyway. */
 const MAX_STORED_PROMPT = 400;
 
-function userTypedPrompt(prompt) {
+/** Room for "Claude needs your permission to use Bash" and a little more. */
+const MAX_DETAIL = 140;
+
+function userTypedPrompt(prompt, source) {
   const text = String(prompt || '').trim();
   if (!text) return null;
+  if (source && !TYPED_PROMPT_SOURCES.has(source)) return null;
   const head = text.slice(0, 40).toLowerCase();
   if (INJECTED_PREFIXES.some((prefix) => head.startsWith(prefix))) {
     return null;
@@ -70,10 +108,8 @@ function userTypedPrompt(prompt) {
   return text.slice(0, MAX_STORED_PROMPT);
 }
 
-/** Suppress a second waiting push for the same session inside this window. */
-const WAITING_DEDUPE_MS = 10_000;
 const STATE_DIR = path.join(__dirname, 'state');
-const WAITING_FILE = path.join(STATE_DIR, 'claude-waiting.json');
+const SESSIONS_FILE = path.join(STATE_DIR, 'claude-sessions.json');
 
 function configCandidates() {
   const candidates = [];
@@ -127,7 +163,10 @@ function parsePayload(raw) {
     .trim();
   if (!cleaned) return {};
   try {
-    return JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    // `null` and bare scalars parse fine and then throw on first field access.
+    // Exit code 1 out of a Stop hook is a visible error in the user's terminal.
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch (e) {
     console.error('pingy: invalid JSON on stdin', e);
     return {};
@@ -135,38 +174,44 @@ function parsePayload(raw) {
 }
 
 /**
- * `permission_prompt` and `agent_needs_input` can arrive back-to-back for the
- * same block. Claim the push so only the first one through actually sends.
+ * What the user is being asked, straight from Claude Code where it exists
+ * ("Claude needs your permission to use Bash"), otherwise our own phrasing for
+ * that notification type.
  */
-function claimWaiting(sessionId, now = Date.now()) {
-  if (!sessionId) return true;
-  let state = {};
-  try {
-    state = JSON.parse(fs.readFileSync(WAITING_FILE, 'utf8')) || {};
-  } catch {
-    state = {};
-  }
+function waitingDetail(payload, kind) {
+  const message = String(payload.message || '').trim();
+  const text = message || WAITING_TYPES.get(kind) || '';
+  return text ? `Needs: ${truncate(text, MAX_DETAIL)}` : null;
+}
 
-  const last = state[sessionId];
-  if (typeof last === 'number' && now - last < WAITING_DEDUPE_MS) {
-    return false;
-  }
+/**
+ * Background work keeps the session alive after the turn ends, so "task's done"
+ * on its own would be a half-truth.
+ */
+function backgroundDetail(payload) {
+  const tasks = Array.isArray(payload.background_tasks) ? payload.background_tasks : [];
+  const live = tasks.filter((task) => {
+    const status = String(task?.status || '').toLowerCase();
+    return status !== 'completed' && status !== 'failed' && status !== 'cancelled';
+  });
+  if (!live.length) return null;
+  return `Note: ${live.length} background task${live.length === 1 ? '' : 's'} still running`;
+}
 
-  // Drop stale sessions so the file cannot grow without bound.
-  for (const [id, ts] of Object.entries(state)) {
-    if (typeof ts !== 'number' || now - ts > 24 * 60 * 60 * 1000) {
-      delete state[id];
-    }
-  }
-  state[sessionId] = now;
+function errorDetail(payload) {
+  const code = String(payload.error || 'unknown').trim();
+  const details = String(payload.error_details || '').trim();
+  const text = details ? `${code} — ${details}` : code;
+  return `Error: ${truncate(text, MAX_DETAIL)}`;
+}
 
-  try {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    fs.writeFileSync(WAITING_FILE, JSON.stringify(state, null, 2), 'utf8');
-  } catch {
-    /* best effort — a failed claim must not suppress the notification */
-  }
-  return true;
+/**
+ * `Stop` fires again when another Stop hook forces the agent onward, and once
+ * more when background work wakes the session. The last assistant message is the
+ * cheapest thing that differs between a genuine second turn and a repeat.
+ */
+function stopSignature(payload) {
+  return truncate(String(payload.last_assistant_message || ''), 200);
 }
 
 async function main() {
@@ -174,47 +219,85 @@ async function main() {
   const eventName = process.argv[2] || payload.hook_event_name || '';
   const config = loadConfig(configCandidates());
   const project = projectName(payload.cwd);
+  const sessionId = payload.session_id || '';
+  const now = Date.now();
   // context.js is keyed on Cursor's field name; adapt rather than fork it.
   const chat = () =>
     resolveChatContext({
-      conversation_id: payload.session_id,
+      conversation_id: sessionId,
       transcript_path: payload.transcript_path,
     });
 
+  const sessions = readSessions(SESSIONS_FILE);
+  let stateChanged = false;
+
   try {
     if (eventName === 'UserPromptSubmit') {
-      const typed = userTypedPrompt(payload.prompt);
+      // Even a machine-authored turn is a turn: recording it is what lets the
+      // next block ping immediately and stops `/loop` ticks from pushing.
+      noteTurnStart(sessions, sessionId, { now, source: payload.source });
+      stateChanged = true;
+
+      const typed = userTypedPrompt(payload.prompt, payload.source);
       if (typed) {
-        rememberPrompt(payload.session_id, typed);
+        rememberPrompt(sessionId, typed);
       }
     } else if (eventName === 'Notification') {
-      if (
-        WAITING_TYPES.has(payload.notification_type) &&
-        claimWaiting(payload.session_id)
-      ) {
+      const kind = payload.notification_type;
+      // Builds that predate `notification_type` send every notice here; without
+      // a type we cannot tell a block from an auth notice, so we stay quiet.
+      if (WAITING_TYPES.has(kind)) {
+        const send = claimWaiting(sessions, sessionId, {
+          now,
+          kind,
+          repingMs: config.waitingRepingMs ?? DEFAULT_REPING_MS,
+        });
+        stateChanged = true;
+        if (send) {
+          await sendNotification(
+            config.ntfyTopic,
+            permissionMessage(project, chat(), SOURCE, waitingDetail(payload, kind)),
+            config.serverUrl
+          );
+        }
+      }
+    } else if (eventName === 'Stop' || eventName === 'StopFailure') {
+      const failed = eventName === 'StopFailure';
+      const send = claimStop(sessions, sessionId, {
+        now,
+        signature: `${eventName}:${stopSignature(payload)}`,
+      });
+      stateChanged = true;
+
+      // A `/loop` tick or a scheduled wake-up ends a turn the user never asked
+      // for. Pushing "task's done" on every tick is noise; a block still pushes.
+      const machineTurn = !failed && turnIsMachineDriven(sessions, sessionId);
+
+      if (send && !machineTurn) {
         await sendNotification(
           config.ntfyTopic,
-          permissionMessage(project, chat(), SOURCE),
+          stopMessage(
+            failed ? 'error' : 'completed',
+            project,
+            chat(),
+            SOURCE,
+            failed ? errorDetail(payload) : backgroundDetail(payload)
+          ),
           config.serverUrl
         );
       }
-    } else if (eventName === 'Stop') {
-      await sendNotification(
-        config.ntfyTopic,
-        stopMessage('completed', project, chat(), SOURCE),
-        config.serverUrl
-      );
-    } else if (eventName === 'StopFailure') {
-      await sendNotification(
-        config.ntfyTopic,
-        stopMessage('error', project, chat(), SOURCE),
-        config.serverUrl
-      );
     } else if (eventName === 'SessionEnd') {
-      clearStoredPrompts(payload.session_id);
+      clearStoredPrompts(sessionId);
+      forgetSession(sessions, sessionId);
+      stateChanged = true;
     }
   } catch (e) {
     console.error('pingy: unexpected error', e);
+  }
+
+  if (stateChanged) {
+    pruneSessions(sessions, now);
+    writeSessions(SESSIONS_FILE, sessions);
   }
 
   process.exit(0);
