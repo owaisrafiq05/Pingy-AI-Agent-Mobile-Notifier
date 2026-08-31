@@ -1,4 +1,4 @@
-# Pingy
+# Pingy - AI Agent Mobile Notifier
 
 **Get notified when your AI coding agent needs you.**
 
