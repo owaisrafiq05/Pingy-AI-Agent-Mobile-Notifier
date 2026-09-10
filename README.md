@@ -1,6 +1,6 @@
 # Pingy - AI Agent Mobile Notifier
 
-**Get notified when your AI coding agent needs you**
+**Get notified when your AI coding agent needs you.**
 
 Your AI coding agent's little notification buddy — step away from the keyboard without missing the moment you're needed.
 
