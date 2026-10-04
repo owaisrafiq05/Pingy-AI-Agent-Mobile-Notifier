@@ -20,7 +20,7 @@ const {
   rememberPrompt,
   resolveChatContext,
 } = require('./lib/context');
-const { markPending, clearPending } = require('./lib/state');
+const { markPending, clearPending, claimCompletion } = require('./lib/state');
 const { loadConfig } = require('./lib/config');
 
 /** Labels the push so you can tell Cursor and Claude Code apart. */
@@ -158,6 +158,17 @@ async function main() {
       clearPending(payload.conversation_id);
     } else if (eventName === 'stop') {
       clearPending(payload.conversation_id);
+      // Cursor runs project + user hooks together; both hit this path. Claim
+      // once so the same turn does not push "Completed" twice.
+      const stopKey =
+        payload.conversation_id ||
+        payload.generation_id ||
+        payload.session_id ||
+        '';
+      if (!claimCompletion(stopKey)) {
+        process.exit(0);
+        return;
+      }
       const chat = resolveChatContext(payload);
       await sendNotification(
         config.ntfyTopic,

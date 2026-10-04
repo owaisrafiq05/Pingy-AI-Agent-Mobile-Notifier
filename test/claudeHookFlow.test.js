@@ -117,6 +117,26 @@ test('Stop pushes a completion labelled Claude Code', async (t) => {
   assert.match(ntfy.received[0].body, /Agent: Claude Code/);
 });
 
+test('Cursor-hosted Claude Stop hooks stay silent', async (t) => {
+  const { ntfy, dir } = await harness(t);
+
+  // Cursor third-party imports run ~/.claude Stop on Cursor agent turns.
+  // Those payloads carry Cursor fields; pushing would falsely say Claude Code.
+  const result = await fireHook(dir, 'Stop', {
+    cursor_version: '2.0.0',
+    workspace_roots: ['/home/me/checkout-api'],
+    conversation_id: 'cursor-turn',
+    status: 'completed',
+  });
+
+  assert.strictEqual(result.code, 0);
+  assert.strictEqual(
+    ntfy.received.length,
+    0,
+    'Cursor already notifies via cursorping.js — Claude entrypoint must not'
+  );
+});
+
 test('StopFailure pushes the error copy and names the failure', async (t) => {
   const { ntfy, dir } = await harness(t);
 

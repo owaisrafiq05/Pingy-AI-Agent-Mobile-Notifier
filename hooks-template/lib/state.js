@@ -10,9 +10,16 @@ const STATE_DIR =
   process.env.CURSORPING_STATE_DIR ||
   path.join(os.homedir(), '.cursor', 'hooks', 'state');
 const STATE_FILE = path.join(STATE_DIR, 'pending.json');
+const COMPLETION_FILE = path.join(STATE_DIR, 'completions.json');
 
 /** Entries this old are abandoned (agent crashed, Cursor restarted, etc.). */
 const MAX_AGE_MS = 30 * 60 * 1000;
+
+/**
+ * Project + global Cursor hooks both run on `stop`. Identical completions this
+ * close together are one event — the first writer wins the push.
+ */
+const STOP_DEDUPE_MS = 10_000;
 
 function ensureStateDir() {
   fs.mkdirSync(STATE_DIR, { recursive: true });
@@ -135,11 +142,65 @@ function claimNotification(conversationId) {
   return true;
 }
 
+function readCompletions() {
+  try {
+    const raw = fs.readFileSync(COMPLETION_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCompletions(state) {
+  ensureStateDir();
+  const tmp = `${COMPLETION_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  try {
+    fs.renameSync(tmp, COMPLETION_FILE);
+  } catch {
+    fs.writeFileSync(COMPLETION_FILE, JSON.stringify(state, null, 2), 'utf8');
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+/**
+ * Claim the one completion push for this conversation/generation. Returns true
+ * only for the first caller within STOP_DEDUPE_MS so project + global hooks
+ * cannot double-push the same turn end.
+ */
+function claimCompletion(
+  key,
+  { now = Date.now(), dedupeMs = STOP_DEDUPE_MS } = {}
+) {
+  if (!key) return true;
+  const state = readCompletions();
+  const prev = state[key];
+  if (typeof prev === 'number' && now - prev < dedupeMs) {
+    return false;
+  }
+  state[key] = now;
+  for (const [id, ts] of Object.entries(state)) {
+    if (typeof ts !== 'number' || now - ts > MAX_AGE_MS) {
+      delete state[id];
+    }
+  }
+  writeCompletions(state);
+  return true;
+}
+
 module.exports = {
   markPending,
   clearPending,
   claimNotification,
+  claimCompletion,
   readState,
   MAX_AGE_MS,
+  STOP_DEDUPE_MS,
   STATE_FILE,
+  COMPLETION_FILE,
 };

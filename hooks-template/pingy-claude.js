@@ -139,6 +139,24 @@ function projectName(cwd) {
   return path.basename(root.replace(/[/\\]+$/, '')) || 'project';
 }
 
+/**
+ * Cursor loads ~/.claude/settings.json hooks when third-party imports are on,
+ * and maps Claude `Stop` onto its own agent turn end. Those payloads carry
+ * Cursor fields (`cursor_version`, `workspace_roots`) — pushing here would
+ * falsely label the alert "Claude Code" and double the Cursor completion.
+ * Real Claude Code CLI sessions never send those fields.
+ */
+function isCursorHost(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (typeof payload.cursor_version === 'string' && payload.cursor_version) {
+    return true;
+  }
+  if (Array.isArray(payload.workspace_roots) && payload.workspace_roots.length > 0) {
+    return true;
+  }
+  return false;
+}
+
 function readStdin() {
   return new Promise((resolve) => {
     let data = '';
@@ -216,6 +234,10 @@ function stopSignature(payload) {
 
 async function main() {
   const payload = parsePayload(await readStdin());
+  if (isCursorHost(payload)) {
+    process.exit(0);
+    return;
+  }
   const eventName = process.argv[2] || payload.hook_event_name || '';
   const config = loadConfig(configCandidates());
   const project = projectName(payload.cwd);

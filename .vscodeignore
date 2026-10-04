@@ -10,6 +10,10 @@ tsconfig.json
 cursor-ping-technical-spec.md
 *.vsix
 .cursor/**
+/Run
+/npm
+/npx
+/tsc
 out/**/*.map
 media/icon-full.png
 ChatGPT*.png

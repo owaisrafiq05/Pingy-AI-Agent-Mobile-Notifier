@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2
+
+- **Fix: one Cursor turn no longer pushes three "Completed" alerts.** Cursor runs
+  project hooks, user hooks, and (via third-party imports) Claude Code `Stop`
+  hooks on the same turn. Completions are now claimed once across project +
+  global Cursor hooks, and the Claude Code entrypoint no-ops when Cursor is the
+  host — so you get a single `Agent: Cursor` push, not Cursor×2 + a false
+  `Agent: Claude Code`
+
 ## 0.4.1
 
 Fixes the Claude Code notifications shipped in 0.4.0. Measured against a real

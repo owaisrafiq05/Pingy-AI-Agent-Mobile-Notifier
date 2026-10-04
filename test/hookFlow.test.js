@@ -220,6 +220,32 @@ test('completion notifications still work', async (t) => {
   assert.deepStrictEqual(readPending(dir), {}, 'stop also clears any open gate');
 });
 
+test('project + global stop hooks collapse to one completion push', async (t) => {
+  const ntfy = await startNtfyStub();
+  const dir = installHooks(ntfy.url);
+
+  t.after(async () => {
+    await ntfy.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Cursor runs every matching hook source; two stop handlers with the same
+  // conversation_id must not both publish.
+  await fireHook(dir, 'stop', {
+    conversation_id: 'shared-turn',
+    status: 'completed',
+    workspace_roots: ['/home/me/checkout-api'],
+  });
+  await fireHook(dir, 'stop', {
+    conversation_id: 'shared-turn',
+    status: 'completed',
+    workspace_roots: ['/home/me/checkout-api'],
+  });
+
+  assert.strictEqual(ntfy.received.length, 1, 'duplicate stop must not double-push');
+  assert.match(ntfy.received[0].body, /Agent: Cursor/);
+});
+
 test('error and aborted completions keep their own copy', async (t) => {
   const ntfy = await startNtfyStub();
   const dir = installHooks(ntfy.url);
@@ -230,10 +256,12 @@ test('error and aborted completions keep their own copy', async (t) => {
   });
 
   await fireHook(dir, 'stop', {
+    conversation_id: 'err-turn',
     status: 'error',
     workspace_roots: ['/home/me/checkout-api'],
   });
   await fireHook(dir, 'stop', {
+    conversation_id: 'abort-turn',
     status: 'aborted',
     workspace_roots: ['/home/me/checkout-api'],
   });
