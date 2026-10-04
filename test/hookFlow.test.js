@@ -142,22 +142,48 @@ test('hook bridge gate lifecycle', async (t) => {
     assert.deepStrictEqual(readPending(dir), {});
   });
 
-  await t.test('a non-shell tool gate is tracked too', async () => {
+  await t.test('a non-shell tool gate is tracked but not promptable', async () => {
+    // Cursor applies reads and searches itself, so an open preToolUse gate only
+    // ever means the agent is busy — never that someone is being asked.
     await fireHook(dir, 'preToolUse', {
       tool_name: 'WebSearch',
       tool_input: { query: 'cursor hooks' },
     });
     assert.strictEqual(readPending(dir).conv1.toolName, 'WebSearch');
+    assert.strictEqual(readPending(dir).conv1.promptable, false);
 
     await fireHook(dir, 'postToolUse', { tool_name: 'WebSearch' });
     assert.deepStrictEqual(readPending(dir), {});
   });
 
-  await t.test('an MCP gate is tracked too', async () => {
+  await t.test('shell and MCP gates are marked promptable', async () => {
     await fireHook(dir, 'beforeMCPExecution', { tool_name: 'linear_search' });
     assert.strictEqual(readPending(dir).conv1.toolName, 'linear_search');
-
+    assert.strictEqual(readPending(dir).conv1.promptable, true);
     await fireHook(dir, 'afterMCPExecution', { tool_name: 'linear_search' });
+
+    await fireHook(dir, 'beforeShellExecution', { command: 'ls' });
+    assert.strictEqual(readPending(dir).conv1.promptable, true);
+    await fireHook(dir, 'afterShellExecution', { command: 'ls' });
+    assert.deepStrictEqual(readPending(dir), {});
+  });
+
+  await t.test('a generic gate does not mask a real approval prompt', async () => {
+    // Cursor can fire preToolUse alongside the specific gate for the same call.
+    // Letting the generic one win would hide the prompt from the watcher.
+    await fireHook(dir, 'beforeShellExecution', { command: 'rm -rf build' });
+    const promptable = readPending(dir).conv1;
+    assert.strictEqual(promptable.promptable, true);
+
+    await fireHook(dir, 'preToolUse', {
+      tool_name: 'Shell',
+      tool_input: { command: 'rm -rf build' },
+    });
+    const after = readPending(dir).conv1;
+    assert.strictEqual(after.promptable, true, 'the promptable gate must survive');
+    assert.strictEqual(after.ts, promptable.ts, 'and keep its original timestamp');
+
+    await fireHook(dir, 'afterShellExecution', { command: 'rm -rf build' });
     assert.deepStrictEqual(readPending(dir), {});
   });
 
@@ -194,6 +220,32 @@ test('completion notifications still work', async (t) => {
   assert.deepStrictEqual(readPending(dir), {}, 'stop also clears any open gate');
 });
 
+test('project + global stop hooks collapse to one completion push', async (t) => {
+  const ntfy = await startNtfyStub();
+  const dir = installHooks(ntfy.url);
+
+  t.after(async () => {
+    await ntfy.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Cursor runs every matching hook source; two stop handlers with the same
+  // conversation_id must not both publish.
+  await fireHook(dir, 'stop', {
+    conversation_id: 'shared-turn',
+    status: 'completed',
+    workspace_roots: ['/home/me/checkout-api'],
+  });
+  await fireHook(dir, 'stop', {
+    conversation_id: 'shared-turn',
+    status: 'completed',
+    workspace_roots: ['/home/me/checkout-api'],
+  });
+
+  assert.strictEqual(ntfy.received.length, 1, 'duplicate stop must not double-push');
+  assert.match(ntfy.received[0].body, /Agent: Cursor/);
+});
+
 test('error and aborted completions keep their own copy', async (t) => {
   const ntfy = await startNtfyStub();
   const dir = installHooks(ntfy.url);
@@ -204,10 +256,12 @@ test('error and aborted completions keep their own copy', async (t) => {
   });
 
   await fireHook(dir, 'stop', {
+    conversation_id: 'err-turn',
     status: 'error',
     workspace_roots: ['/home/me/checkout-api'],
   });
   await fireHook(dir, 'stop', {
+    conversation_id: 'abort-turn',
     status: 'aborted',
     workspace_roots: ['/home/me/checkout-api'],
   });
@@ -240,6 +294,72 @@ test('hooks do not send waiting notifications (extension owns that)', async (t) 
     'a still-open gate must not push waiting from the hook path'
   );
   assert.strictEqual(readPending(dir).conv1.notified, false);
+});
+
+test('what the hooks write is what the watcher judges', async (t) => {
+  // The false-alert bug lived in the seam between these two halves: the hook
+  // recorded every gate and the watcher treated every gate as a possible prompt.
+  // This drives the real hook scripts and then the compiled decision rules over
+  // the file they produced, so a field rename on either side fails here.
+  const { decidePending, parsePendingState } = require('../out/pendingState');
+  const ntfy = await startNtfyStub();
+  const dir = installHooks(ntfy.url);
+  t.after(async () => {
+    await ntfy.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const WAITING_AFTER = 8000;
+  const judge = (opts = {}) => {
+    const state = parsePendingState(
+      fs.readFileSync(path.join(dir, 'state', 'pending.json'), 'utf8')
+    );
+    const [entry] = Object.values(state);
+    return decidePending(state, {
+      // Pretend the gate has been open for a minute.
+      now: (entry?.ts ?? 0) + 60000,
+      waitingAfterMs: WAITING_AFTER,
+      maxAgeMs: 30 * 60 * 1000,
+      shellActivityAvailable: false,
+      allowUncorroboratedShell: true,
+      userPresent: false,
+      ...opts,
+    }).notify;
+  };
+
+  await fireHook(dir, 'preToolUse', {
+    tool_name: 'ReadFile',
+    tool_input: { path: 'src/index.ts' },
+  });
+  assert.deepStrictEqual(judge(), [], 'a slow read is not a permission prompt');
+  await fireHook(dir, 'postToolUse', { tool_name: 'ReadFile' });
+
+  await fireHook(dir, 'beforeShellExecution', { command: 'npm run build' });
+  assert.deepStrictEqual(
+    judge({ shellActivityAvailable: true, isExecuting: () => true }),
+    [],
+    'stay silent while the command is demonstrably running'
+  );
+  assert.deepStrictEqual(
+    judge({ shellActivityAvailable: true, isExecuting: () => false }),
+    ['conv1'],
+    'a shell gate with an idle terminal really is waiting on someone'
+  );
+  assert.deepStrictEqual(
+    judge({ userPresent: true }),
+    ['conv1'],
+    'presence must not drop a real Run/Skip wait'
+  );
+
+  // Soft events must not clear a promptable shell gate still waiting on Allow.
+  await fireHook(dir, 'afterAgentThought', { text: 'still waiting on the user' });
+  await fireHook(dir, 'afterAgentResponse', { text: 'partial' });
+  assert.ok(readPending(dir).conv1, 'soft events must keep the Run/Skip gate');
+  assert.deepStrictEqual(judge(), ['conv1']);
+
+  await fireHook(dir, 'afterShellExecution', { command: 'npm run build' });
+  assert.deepStrictEqual(readPending(dir), {});
+  assert.strictEqual(ntfy.received.length, 0, 'gates alone never push from the hook');
 });
 
 test('BOM-prefixed stdin still records a pending gate', async () => {

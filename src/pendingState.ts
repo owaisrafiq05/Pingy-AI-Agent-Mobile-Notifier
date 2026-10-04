@@ -2,6 +2,20 @@
  * Decides when an open approval gate has stalled long enough to count as
  * "the agent is waiting for the user".
  *
+ * Cursor exposes no event for "approval dialog opened" — only the gate events
+ * that fire *before* a tool runs, whether or not the user is ever asked. So a
+ * gate that stays open means one of two things:
+ *
+ *   1. Cursor is showing a Run/Skip prompt        → worth a push
+ *   2. Cursor auto-ran the tool and it is slow    → must stay silent
+ *
+ * Nothing in the payload distinguishes them, which is why the old "2 seconds and
+ * no follow-up event" rule pushed "your agent needs you" every time an auto-run
+ * command took a moment. The rules below only notify when the evidence positively
+ * favours case 1: the gate is one Cursor actually prompts for, it has been open
+ * far longer than a tool call takes, and either terminal activity proves nothing
+ * is running or the user is not sitting at the window.
+ *
  * Kept free of vscode and fs imports so the rules can be unit tested directly.
  */
 
@@ -13,13 +27,23 @@ export interface PendingEntry {
   command?: string | null;
   toolUseId?: string | null;
   project?: string | null;
+  /**
+   * Recorded by the hook: does Cursor ever ask the user about this kind of gate?
+   * Absent on entries written by older installs, hence the fallback below.
+   */
+  promptable?: boolean;
 }
 
 export type PendingState = Record<string, PendingEntry>;
 
 export interface DecisionOptions {
   now: number;
-  timeoutMs: number;
+  /**
+   * How long a gate must stay open before it can count as an approval prompt.
+   * A real prompt waits for a human, so this can be generous; every millisecond
+   * below the slowest auto-run tool call is a false "waiting" push.
+   */
+  waitingAfterMs: number;
   maxAgeMs: number;
   /**
    * Corroborating signal: the gate's command is demonstrably executing right
@@ -27,11 +51,26 @@ export interface DecisionOptions {
    */
   isExecuting?: (entry: PendingEntry) => boolean;
   /**
-   * When true, shell gates may notify only if isExecuting says the command is
-   * not running. When false/omitted, shell gates stay silent — without terminal
-   * activity we cannot tell a slow auto-run apart from a real Run/Skip wait.
+   * True only when shell integration has proven it reports executions in this
+   * window — the API merely existing tells us nothing, and trusting its silence
+   * turned every slow auto-run command into a false alert.
    */
   shellActivityAvailable?: boolean;
+  /**
+   * True when a human is demonstrably at the Cursor window right now. Someone
+   * watching the agent work does not need their phone buzzed, and if a prompt
+   * really is open they are looking straight at it.
+   */
+  userPresent?: boolean;
+  /**
+   * Opt in to alerting on shell gates that terminal activity cannot vouch for.
+   *
+   * Off by default: shell commands are the tools that legitimately run for
+   * minutes (installs, builds, test suites), so without a terminal signal an
+   * open gate is far more likely to be a slow auto-run than a prompt. Users who
+   * never use auto-run can turn this on and accept the occasional false alert.
+   */
+  allowUncorroboratedShell?: boolean;
 }
 
 export interface PendingDecision {
@@ -63,6 +102,26 @@ export function isShellGate(entry: PendingEntry): boolean {
   return entry.event === 'beforeShellExecution' || entry.toolName === 'Shell';
 }
 
+/**
+ * The gates Cursor can actually stop and ask about: running a shell command and
+ * calling an MCP tool.
+ *
+ * `preToolUse` fires for every tool the agent uses — reads, searches, edits —
+ * and Cursor applies those itself. Treating one as a possible prompt meant any
+ * slow read or search became a "waiting" push, and the shell and MCP calls that
+ * *are* promptable arrive on their own events anyway.
+ */
+export function isPromptableGate(entry: PendingEntry): boolean {
+  if (typeof entry.promptable === 'boolean') {
+    return entry.promptable;
+  }
+  // Written by an install that predates the flag.
+  if (entry.event) {
+    return entry.event === 'beforeShellExecution' || entry.event === 'beforeMCPExecution';
+  }
+  return entry.toolName === 'Shell' || entry.toolName === 'MCP';
+}
+
 export function decidePending(
   state: PendingState,
   opts: DecisionOptions
@@ -90,22 +149,36 @@ export function decidePending(
       continue;
     }
 
-    // Still inside the window where a normal fast tool call would have
-    // resolved on its own.
-    if (age < opts.timeoutMs) {
+    // Cursor never asks about this gate, so an open one only means "busy".
+    if (!isPromptableGate(entry)) {
       continue;
     }
 
-    if (isShellGate(entry)) {
-      // Prefer missing a wait over pinging while a command is just running.
-      if (!opts.shellActivityAvailable) {
-        continue;
-      }
-      if (opts.isExecuting?.(entry)) {
-        continue;
-      }
-    } else if (opts.isExecuting?.(entry)) {
+    // Still inside the window where an auto-run tool call would have finished
+    // on its own.
+    if (age < opts.waitingAfterMs) {
       continue;
+    }
+
+    // The command is running, so the agent is working, not blocked.
+    if (opts.isExecuting?.(entry)) {
+      continue;
+    }
+
+    // Terminal activity can only corroborate shell gates, and only where shell
+    // integration actually reports.
+    const corroborated = isShellGate(entry) && opts.shellActivityAvailable === true;
+    if (!corroborated) {
+      // A shell command with no terminal signal is indistinguishable from a slow
+      // auto-run, and those are the tool calls that legitimately take minutes.
+      if (isShellGate(entry) && opts.allowUncorroboratedShell !== true) {
+        continue;
+      }
+      // Presence used to veto here, but moving the mouse / focusing Cursor while
+      // a Run/Skip prompt sat open meant many real waits never reached the phone.
+      // waitingAfterMs + isExecuting are the spam filters; presence only informs
+      // the status bar now (opts.userPresent kept for API compatibility).
+      void opts.userPresent;
     }
 
     notify.push(id);

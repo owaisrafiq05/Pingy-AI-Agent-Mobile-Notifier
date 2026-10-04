@@ -20,7 +20,12 @@ const {
   rememberPrompt,
   resolveChatContext,
 } = require('./lib/context');
-const { markPending, clearPending } = require('./lib/state');
+const {
+  markPending,
+  clearPending,
+  clearPendingIfNotPromptable,
+  claimCompletion,
+} = require('./lib/state');
 const { loadConfig } = require('./lib/config');
 
 /** Labels the push so you can tell Cursor and Claude Code apart. */
@@ -38,15 +43,32 @@ const GATE_EVENTS = new Set([
 ]);
 
 /**
- * Events that prove the agent is no longer blocked: the user approved (the
- * tool ran), rejected (postToolUseFailure with permission_denied), or the loop
- * moved on for some other reason.
+ * The subset Cursor can actually stop and ask about: running a shell command and
+ * calling an MCP tool.
+ *
+ * `preToolUse` fires for every tool the agent uses — reads, searches, edits —
+ * and Cursor applies those itself, so an open `preToolUse` gate only ever means
+ * "busy". Recording that here (rather than re-deriving it in the extension) keeps
+ * the judgement next to the event names it depends on.
  */
-const RESOLVE_EVENTS = new Set([
+const PROMPTABLE_EVENTS = new Set(['beforeShellExecution', 'beforeMCPExecution']);
+
+/**
+ * Hard proof the gate closed: the tool ran, failed, or the shell/MCP call
+ * finished. These always clear pending.
+ */
+const HARD_RESOLVE_EVENTS = new Set([
   'postToolUse',
   'postToolUseFailure',
   'afterShellExecution',
   'afterMCPExecution',
+]);
+
+/**
+ * Soft activity that can still happen while Run/Skip is on screen. Must not
+ * clear a promptable shell/MCP gate or waiting alerts are dropped.
+ */
+const SOFT_RESOLVE_EVENTS = new Set([
   'afterFileEdit',
   'afterAgentResponse',
   'afterAgentThought',
@@ -126,6 +148,7 @@ function gateMeta(eventName, payload) {
     command: typeof command === 'string' ? command : null,
     toolUseId: payload.tool_use_id ?? null,
     project: projectName(payload.workspace_roots),
+    promptable: PROMPTABLE_EVENTS.has(eventName),
   };
 }
 
@@ -142,10 +165,23 @@ async function main() {
       process.stdout.write(JSON.stringify({ continue: true }));
     } else if (GATE_EVENTS.has(eventName)) {
       markPending(payload.conversation_id, gateMeta(eventName, payload));
-    } else if (RESOLVE_EVENTS.has(eventName)) {
+    } else if (HARD_RESOLVE_EVENTS.has(eventName)) {
       clearPending(payload.conversation_id);
+    } else if (SOFT_RESOLVE_EVENTS.has(eventName)) {
+      clearPendingIfNotPromptable(payload.conversation_id);
     } else if (eventName === 'stop') {
       clearPending(payload.conversation_id);
+      // Cursor runs project + user hooks together; both hit this path. Claim
+      // once so the same turn does not push "Completed" twice.
+      const stopKey =
+        payload.conversation_id ||
+        payload.generation_id ||
+        payload.session_id ||
+        '';
+      if (!claimCompletion(stopKey)) {
+        process.exit(0);
+        return;
+      }
       const chat = resolveChatContext(payload);
       await sendNotification(
         config.ntfyTopic,

@@ -11,8 +11,17 @@ export interface CursorPingConfig {
 }
 
 const DEFAULT_SERVER = 'https://ntfy.sh';
-/** Short enough to feel immediate on a Run/Skip prompt; long enough that allowlisted commands usually clear first. */
+/** @deprecated Superseded by DEFAULT_WAITING_AFTER; still written to hook configs for older installs. */
 const DEFAULT_TIMEOUT = 2000;
+/**
+ * Long enough that a quick auto-run finishes before we consider "waiting", short
+ * enough that a real Run/Skip prompt reaches the phone while it still matters.
+ * Cursor's agent terminal often never reports shell activity, so this — not
+ * terminal silence — is the main filter against false waiting pushes.
+ */
+const DEFAULT_WAITING_AFTER = 8000;
+/** Stop treating the user as "at the keyboard" after this much idle time. */
+const DEFAULT_PRESENCE_IDLE = 8000;
 /** One "your agent needs you" push covers a session for this long. */
 const DEFAULT_WAITING_REPING = 5 * 60 * 1000;
 
@@ -31,6 +40,22 @@ export function getPendingTimeoutMs(): number {
 }
 
 /**
+ * How long a Cursor gate must stay open before it counts as an approval prompt.
+ *
+ * Cursor fires its gate events whether or not you are ever asked, so this is the
+ * line between "waiting on you" and "auto-running something slow". The old
+ * 2-second `pendingTimeoutMs` sat well below how long an ordinary auto-run tool
+ * call takes, which is why waiting pushes arrived for commands nobody was asked
+ * about. `pendingTimeoutMs` no longer drives this decision.
+ */
+export function getWaitingAfterMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('waitingAfterMs') ??
+    DEFAULT_WAITING_AFTER
+  );
+}
+
+/**
  * Claude Code fires one notification per blocking dialog, and an ordinary turn in
  * `default` permission mode opens many. The push means "come back to your
  * terminal", so repeats inside this window add nothing.
@@ -39,6 +64,30 @@ export function getWaitingRepingMs(): number {
   return (
     vscode.workspace.getConfiguration('cursorping').get<number>('waitingRepingMs') ??
     DEFAULT_WAITING_REPING
+  );
+}
+
+/**
+ * Whether to alert on Cursor shell gates that terminal activity cannot vouch for.
+ *
+ * On by default: Cursor's agent terminal usually never reports shell integration,
+ * so "off" meant real Run/Skip prompts never reached the phone. Long auto-runs
+ * are filtered by `waitingAfterMs` and by suppressing while the user is present.
+ * Set to false only if you prefer silence over occasional false waits.
+ */
+export function getAllowUncorroboratedShell(): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration('cursorping')
+      .get<boolean>('alertOnUnconfirmedShellWaits') ?? true
+  );
+}
+
+/** How long without mouse/keyboard before we stop treating the user as present. */
+export function getPresenceIdleMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('presenceIdleMs') ??
+    DEFAULT_PRESENCE_IDLE
   );
 }
 

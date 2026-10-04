@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.4
+
+- **Fix: waiting alerts no longer drop for open Run/Skip prompts.** Soft hook
+  events (`afterAgentThought`, `afterAgentResponse`, `afterFileEdit`,
+  `subagentStop`) were clearing promptable shell/MCP gates while Cursor still
+  showed Allow — so some waiting commands never reached ntfy. Those events no
+  longer clear a promptable gate.
+- **Fix: presence no longer blocks waiting pushes.** Moving the mouse or keeping
+  Cursor focused while a prompt was open suppressed the phone alert forever.
+  Waiting now fires after `waitingAfterMs` (default **8s**) unless the command is
+  demonstrably executing.
+- Default `waitingAfterMs` lowered from 15s → **8s** for snappier real waits.
+
+## 0.4.3
+
+- **Fix: real Run/Skip prompts reach ntfy again.** `alertOnUnconfirmedShellWaits`
+  defaulted to off, and Cursor's agent terminal almost never reports shell
+  activity — so shell approval prompts stayed silent forever. Default is now
+  **on**, `waitingAfterMs` is **15s** (was 45s), and presence uses an **8s** idle
+  window so a prompt left on screen still pings once you stop touching the
+  keyboard. Turn `alertOnUnconfirmedShellWaits` off only if you prefer silence
+  over occasional false waits on long auto-runs.
+
+## 0.4.2
+
+- **Fix: one Cursor turn no longer pushes three "Completed" alerts.** Cursor runs
+  project hooks, user hooks, and (via third-party imports) Claude Code `Stop`
+  hooks on the same turn. Completions are now claimed once across project +
+  global Cursor hooks, and the Claude Code entrypoint no-ops when Cursor is the
+  host — so you get a single `Agent: Cursor` push, not Cursor×2 + a false
+  `Agent: Claude Code`
+
 ## 0.4.1
 
 Fixes the Claude Code notifications shipped in 0.4.0. Measured against a real
@@ -34,6 +66,40 @@ turn.
   wake-ups), those turns no longer push a completion; a blocked one still pushes
 - New: `npm run test:e2e` drives the real `claude` CLI against a stub ntfy server,
   so a renamed event or payload field fails a test instead of going unnoticed
+
+### Cursor: no more "waiting for your response" when nothing was asked
+
+Cursor fires its gate events (`preToolUse`, `beforeShellExecution`,
+`beforeMCPExecution`) whether or not you are ever prompted, so an auto-run command
+that took a moment looked exactly like a pending approval. Three things caused the
+false alerts, and all three are fixed:
+
+- **`preToolUse` gates no longer alert at all.** They fire for every tool the agent
+  uses — reads, searches, edits — and Cursor applies those itself, so a slow one
+  meant "busy", never "waiting". The gates Cursor really prompts for (shell, MCP)
+  arrive on their own events, and the hook now records that distinction in
+  `pending.json` as `promptable`
+- **The terminal-activity guard was inert where it mattered.** It trusted its own
+  silence whenever VS Code merely *exposed* the shell-integration API; Cursor's
+  agent terminal frequently reports nothing, so "no command running" was the answer
+  for every command. It now requires having actually observed an execution before
+  its silence counts as evidence
+- **The threshold was 2 seconds** (`pendingTimeoutMs`), far below how long a normal
+  auto-run tool call takes. Replaced by `cursorping.waitingAfterMs`, default 45s —
+  a real prompt waits for a human, so patience costs nothing. `pendingTimeoutMs` is
+  deprecated and no longer affects waiting alerts, including in config files left
+  behind by older installs
+- **New guard: nobody gets buzzed while they are at the window.** A waiting push
+  means "come back to your terminal"; if you are typing in Cursor there is nothing
+  to come back to. Presence is measured from mouse and keyboard signals only —
+  agent edits deliberately do not count, and a window left focused while you walk
+  away goes idle and stops suppressing
+- Shell gates that terminal activity cannot vouch for now stay silent by default,
+  since installs and builds legitimately run for minutes. Set
+  `cursorping.alertOnUnconfirmedShellWaits` to `true` if you never use auto-run and
+  would rather have the alert
+- A generic `preToolUse` gate can no longer overwrite a shell or MCP gate that
+  opened moments earlier, which would have hidden a real prompt from the watcher
 
 ## 0.4.0
 

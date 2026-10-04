@@ -10,9 +10,16 @@ const STATE_DIR =
   process.env.CURSORPING_STATE_DIR ||
   path.join(os.homedir(), '.cursor', 'hooks', 'state');
 const STATE_FILE = path.join(STATE_DIR, 'pending.json');
+const COMPLETION_FILE = path.join(STATE_DIR, 'completions.json');
 
 /** Entries this old are abandoned (agent crashed, Cursor restarted, etc.). */
 const MAX_AGE_MS = 30 * 60 * 1000;
+
+/**
+ * Project + global Cursor hooks both run on `stop`. Identical completions this
+ * close together are one event — the first writer wins the push.
+ */
+const STOP_DEDUPE_MS = 10_000;
 
 function ensureStateDir() {
   fs.mkdirSync(STATE_DIR, { recursive: true });
@@ -60,6 +67,14 @@ function dropAbandoned(state, now = Date.now()) {
 }
 
 /**
+ * Cursor can fire a generic `preToolUse` gate alongside the specific
+ * `beforeShellExecution` / `beforeMCPExecution` one for the same tool call. Since
+ * only the specific gate is one the user is ever asked about, letting the generic
+ * one overwrite it this soon after would hide a real approval prompt.
+ */
+const PROMPTABLE_HOLD_MS = 3000;
+
+/**
  * Record that the agent reached a gate where Cursor may ask the user to
  * approve something. One entry per conversation: the agent loop blocks on a
  * single gate at a time, and any later event proves it moved on.
@@ -68,14 +83,29 @@ function markPending(conversationId, meta = {}) {
   if (!conversationId) return;
   const state = readState();
   dropAbandoned(state);
+
+  const now = Date.now();
+  const prior = state[conversationId];
+  if (
+    !meta.promptable &&
+    prior?.promptable === true &&
+    typeof prior.ts === 'number' &&
+    now - prior.ts < PROMPTABLE_HOLD_MS
+  ) {
+    // Keep the gate that can actually be waiting on someone.
+    writeState(state);
+    return;
+  }
+
   state[conversationId] = {
-    ts: Date.now(),
+    ts: now,
     notified: false,
     event: meta.event ?? null,
     toolName: meta.toolName ?? null,
     command: meta.command ?? null,
     toolUseId: meta.toolUseId ?? null,
     project: meta.project ?? null,
+    promptable: meta.promptable === true,
   };
   writeState(state);
 }
@@ -96,6 +126,35 @@ function clearPending(conversationId) {
   }
 }
 
+function isPromptableEntry(entry) {
+  if (!entry) return false;
+  if (entry.promptable === true) return true;
+  return (
+    entry.event === 'beforeShellExecution' || entry.event === 'beforeMCPExecution'
+  );
+}
+
+/**
+ * Soft events (thoughts, responses, unrelated edits) can fire while Cursor is
+ * still showing Run/Skip for a shell/MCP gate. Clearing those would drop the
+ * waiting alert even though the prompt is still on screen.
+ */
+function clearPendingIfNotPromptable(conversationId) {
+  if (!conversationId) return;
+  const state = readState();
+  const entry = state[conversationId];
+  if (!entry) {
+    if (dropAbandoned(state)) writeState(state);
+    return;
+  }
+  if (isPromptableEntry(entry)) {
+    return;
+  }
+  delete state[conversationId];
+  dropAbandoned(state);
+  writeState(state);
+}
+
 /**
  * Atomically claim the right to send the one permission notification for this
  * gate. Returns true only for the first caller (hook timer or extension poll).
@@ -112,11 +171,66 @@ function claimNotification(conversationId) {
   return true;
 }
 
+function readCompletions() {
+  try {
+    const raw = fs.readFileSync(COMPLETION_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCompletions(state) {
+  ensureStateDir();
+  const tmp = `${COMPLETION_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  try {
+    fs.renameSync(tmp, COMPLETION_FILE);
+  } catch {
+    fs.writeFileSync(COMPLETION_FILE, JSON.stringify(state, null, 2), 'utf8');
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+/**
+ * Claim the one completion push for this conversation/generation. Returns true
+ * only for the first caller within STOP_DEDUPE_MS so project + global hooks
+ * cannot double-push the same turn end.
+ */
+function claimCompletion(
+  key,
+  { now = Date.now(), dedupeMs = STOP_DEDUPE_MS } = {}
+) {
+  if (!key) return true;
+  const state = readCompletions();
+  const prev = state[key];
+  if (typeof prev === 'number' && now - prev < dedupeMs) {
+    return false;
+  }
+  state[key] = now;
+  for (const [id, ts] of Object.entries(state)) {
+    if (typeof ts !== 'number' || now - ts > MAX_AGE_MS) {
+      delete state[id];
+    }
+  }
+  writeCompletions(state);
+  return true;
+}
+
 module.exports = {
   markPending,
   clearPending,
+  clearPendingIfNotPromptable,
   claimNotification,
+  claimCompletion,
   readState,
   MAX_AGE_MS,
+  STOP_DEDUPE_MS,
   STATE_FILE,
+  COMPLETION_FILE,
 };

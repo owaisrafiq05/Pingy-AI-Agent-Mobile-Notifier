@@ -16,6 +16,7 @@ export class TerminalActivityTracker implements vscode.Disposable {
   private readonly running = new Map<string, number>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly supported: boolean;
+  private observedAny = false;
 
   constructor() {
     const api = vscode.window as unknown as {
@@ -39,6 +40,7 @@ export class TerminalActivityTracker implements vscode.Disposable {
       api.onDidStartTerminalShellExecution!((e) => {
         const key = normalize(e.execution?.commandLine?.value);
         if (key) {
+          this.observedAny = true;
           this.running.set(key, Date.now());
         }
       }),
@@ -53,6 +55,19 @@ export class TerminalActivityTracker implements vscode.Disposable {
 
   get isSupported(): boolean {
     return this.supported;
+  }
+
+  /**
+   * Whether this tracker's silence is worth anything.
+   *
+   * The API being present says nothing: Cursor's agent terminal often does not
+   * report shell integration at all, and then `isExecuting` answers "not running"
+   * for every command — which used to turn every slow auto-run command into a
+   * "waiting for permission" push. Until we have seen one execution start, we
+   * know nothing and the caller must fall back to other evidence.
+   */
+  get isReporting(): boolean {
+    return this.supported && this.observedAny;
   }
 
   /**

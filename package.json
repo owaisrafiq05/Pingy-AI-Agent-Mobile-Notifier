@@ -2,7 +2,7 @@
   "name": "cursorping",
   "displayName": "Pingy",
   "description": "Pingy — Get notified when your AI coding agent needs you. Works with Cursor and Claude Code. Your AI coding agent's little notification buddy.",
-  "version": "0.4.1",
+  "version": "0.4.4",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
@@ -56,10 +56,26 @@
           "default": "https://ntfy.sh",
           "description": "ntfy server base URL (use your self-hosted instance if preferred)"
         },
+        "cursorping.waitingAfterMs": {
+          "type": "number",
+          "default": 8000,
+          "description": "Cursor only: how long a shell or MCP gate must stay open before it counts as Cursor waiting for your approval. Cursor fires its gate events whether or not you are asked, so a very short window turns ordinary auto-run commands into false \"waiting\" alerts."
+        },
+        "cursorping.alertOnUnconfirmedShellWaits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cursor only: send a waiting alert for a shell command even when terminal activity cannot confirm the command is not running. On by default because Cursor's agent terminal usually reports no shell activity — turning this off means real Run/Skip prompts never reach your phone. Turn it off only if you prefer silence over occasional false waits on long auto-runs."
+        },
+        "cursorping.presenceIdleMs": {
+          "type": "number",
+          "default": 8000,
+          "description": "Cursor only: how long without mouse/keyboard before Pingy treats you as away. Waiting alerts are suppressed while you are present (the prompt is on screen); after this idle they can fire."
+        },
         "cursorping.pendingTimeoutMs": {
           "type": "number",
           "default": 2000,
-          "description": "Milliseconds an open tool/shell/MCP gate may stay unresolved before it is treated as the Agent waiting for your permission (keep small for near-immediate Run/Skip alerts)"
+          "deprecationMessage": "Superseded by cursorping.waitingAfterMs — this no longer affects waiting alerts.",
+          "description": "Deprecated. Kept so existing settings do not error; use cursorping.waitingAfterMs instead."
         },
         "cursorping.pendingMaxAgeMs": {
           "type": "number",

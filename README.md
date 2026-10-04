@@ -146,6 +146,21 @@ prompt, when the turn ends, or after 5 minutes if the agent is still blocked. Se
 
 Each notification also includes **Project**, **Agent** (`Cursor` or `Claude Code`), and **Prompt** when available. On Claude Code the push also carries what the agent is waiting for (`Needs: Claude needs your permission to use Bash`) or what broke (`Error: rate_limit`).
 
+### When Cursor waiting alerts fire
+
+Cursor exposes no event for "approval prompt opened" — only events that fire
+before a tool runs, whether or not you are asked. So Pingy alerts only when the
+evidence actually points at a prompt:
+
+- the gate is one Cursor prompts about (a shell command or an MCP call — never a
+  read, search or edit, which Cursor applies itself)
+- it has stayed open longer than `cursorping.waitingAfterMs` (default 8s)
+- and the command is not demonstrably executing in a terminal
+
+Long auto-runs can still look like a prompt when Cursor's agent terminal reports
+no shell activity. Prefer silence over occasional false waits? Set
+`cursorping.alertOnUnconfirmedShellWaits` to `false`, or raise `waitingAfterMs`.
+
 ## Supported agents
 
 | | Agent | Status |
