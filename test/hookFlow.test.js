@@ -309,7 +309,7 @@ test('what the hooks write is what the watcher judges', async (t) => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const WAITING_AFTER = 45000;
+  const WAITING_AFTER = 8000;
   const judge = (opts = {}) => {
     const state = parsePendingState(
       fs.readFileSync(path.join(dir, 'state', 'pending.json'), 'utf8')
@@ -321,6 +321,7 @@ test('what the hooks write is what the watcher judges', async (t) => {
       waitingAfterMs: WAITING_AFTER,
       maxAgeMs: 30 * 60 * 1000,
       shellActivityAvailable: false,
+      allowUncorroboratedShell: true,
       userPresent: false,
       ...opts,
     }).notify;
@@ -335,25 +336,26 @@ test('what the hooks write is what the watcher judges', async (t) => {
 
   await fireHook(dir, 'beforeShellExecution', { command: 'npm run build' });
   assert.deepStrictEqual(
-    judge(),
-    [],
-    'an auto-run command with no terminal signal must stay silent'
-  );
-  assert.deepStrictEqual(
     judge({ shellActivityAvailable: true, isExecuting: () => true }),
     [],
-    'and stay silent while it is demonstrably running'
+    'stay silent while the command is demonstrably running'
   );
   assert.deepStrictEqual(
     judge({ shellActivityAvailable: true, isExecuting: () => false }),
     ['conv1'],
-    'but a shell gate with an idle terminal really is waiting on someone'
+    'a shell gate with an idle terminal really is waiting on someone'
   );
   assert.deepStrictEqual(
-    judge({ userPresent: true, allowUncorroboratedShell: true }),
-    [],
-    'nobody needs a phone push while they are sitting at the window'
+    judge({ userPresent: true }),
+    ['conv1'],
+    'presence must not drop a real Run/Skip wait'
   );
+
+  // Soft events must not clear a promptable shell gate still waiting on Allow.
+  await fireHook(dir, 'afterAgentThought', { text: 'still waiting on the user' });
+  await fireHook(dir, 'afterAgentResponse', { text: 'partial' });
+  assert.ok(readPending(dir).conv1, 'soft events must keep the Run/Skip gate');
+  assert.deepStrictEqual(judge(), ['conv1']);
 
   await fireHook(dir, 'afterShellExecution', { command: 'npm run build' });
   assert.deepStrictEqual(readPending(dir), {});

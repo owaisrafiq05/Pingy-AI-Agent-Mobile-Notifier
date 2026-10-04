@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.4
+
+- **Fix: waiting alerts no longer drop for open Run/Skip prompts.** Soft hook
+  events (`afterAgentThought`, `afterAgentResponse`, `afterFileEdit`,
+  `subagentStop`) were clearing promptable shell/MCP gates while Cursor still
+  showed Allow — so some waiting commands never reached ntfy. Those events no
+  longer clear a promptable gate.
+- **Fix: presence no longer blocks waiting pushes.** Moving the mouse or keeping
+  Cursor focused while a prompt was open suppressed the phone alert forever.
+  Waiting now fires after `waitingAfterMs` (default **8s**) unless the command is
+  demonstrably executing.
+- Default `waitingAfterMs` lowered from 15s → **8s** for snappier real waits.
+
+## 0.4.3
+
+- **Fix: real Run/Skip prompts reach ntfy again.** `alertOnUnconfirmedShellWaits`
+  defaulted to off, and Cursor's agent terminal almost never reports shell
+  activity — so shell approval prompts stayed silent forever. Default is now
+  **on**, `waitingAfterMs` is **15s** (was 45s), and presence uses an **8s** idle
+  window so a prompt left on screen still pings once you stop touching the
+  keyboard. Turn `alertOnUnconfirmedShellWaits` off only if you prefer silence
+  over occasional false waits on long auto-runs.
+
 ## 0.4.2
 
 - **Fix: one Cursor turn no longer pushes three "Completed" alerts.** Cursor runs

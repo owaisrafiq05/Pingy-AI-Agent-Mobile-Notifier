@@ -20,7 +20,12 @@ const {
   rememberPrompt,
   resolveChatContext,
 } = require('./lib/context');
-const { markPending, clearPending, claimCompletion } = require('./lib/state');
+const {
+  markPending,
+  clearPending,
+  clearPendingIfNotPromptable,
+  claimCompletion,
+} = require('./lib/state');
 const { loadConfig } = require('./lib/config');
 
 /** Labels the push so you can tell Cursor and Claude Code apart. */
@@ -49,15 +54,21 @@ const GATE_EVENTS = new Set([
 const PROMPTABLE_EVENTS = new Set(['beforeShellExecution', 'beforeMCPExecution']);
 
 /**
- * Events that prove the agent is no longer blocked: the user approved (the
- * tool ran), rejected (postToolUseFailure with permission_denied), or the loop
- * moved on for some other reason.
+ * Hard proof the gate closed: the tool ran, failed, or the shell/MCP call
+ * finished. These always clear pending.
  */
-const RESOLVE_EVENTS = new Set([
+const HARD_RESOLVE_EVENTS = new Set([
   'postToolUse',
   'postToolUseFailure',
   'afterShellExecution',
   'afterMCPExecution',
+]);
+
+/**
+ * Soft activity that can still happen while Run/Skip is on screen. Must not
+ * clear a promptable shell/MCP gate or waiting alerts are dropped.
+ */
+const SOFT_RESOLVE_EVENTS = new Set([
   'afterFileEdit',
   'afterAgentResponse',
   'afterAgentThought',
@@ -154,8 +165,10 @@ async function main() {
       process.stdout.write(JSON.stringify({ continue: true }));
     } else if (GATE_EVENTS.has(eventName)) {
       markPending(payload.conversation_id, gateMeta(eventName, payload));
-    } else if (RESOLVE_EVENTS.has(eventName)) {
+    } else if (HARD_RESOLVE_EVENTS.has(eventName)) {
       clearPending(payload.conversation_id);
+    } else if (SOFT_RESOLVE_EVENTS.has(eventName)) {
+      clearPendingIfNotPromptable(payload.conversation_id);
     } else if (eventName === 'stop') {
       clearPending(payload.conversation_id);
       // Cursor runs project + user hooks together; both hit this path. Claim

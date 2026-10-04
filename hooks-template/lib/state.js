@@ -126,6 +126,35 @@ function clearPending(conversationId) {
   }
 }
 
+function isPromptableEntry(entry) {
+  if (!entry) return false;
+  if (entry.promptable === true) return true;
+  return (
+    entry.event === 'beforeShellExecution' || entry.event === 'beforeMCPExecution'
+  );
+}
+
+/**
+ * Soft events (thoughts, responses, unrelated edits) can fire while Cursor is
+ * still showing Run/Skip for a shell/MCP gate. Clearing those would drop the
+ * waiting alert even though the prompt is still on screen.
+ */
+function clearPendingIfNotPromptable(conversationId) {
+  if (!conversationId) return;
+  const state = readState();
+  const entry = state[conversationId];
+  if (!entry) {
+    if (dropAbandoned(state)) writeState(state);
+    return;
+  }
+  if (isPromptableEntry(entry)) {
+    return;
+  }
+  delete state[conversationId];
+  dropAbandoned(state);
+  writeState(state);
+}
+
 /**
  * Atomically claim the right to send the one permission notification for this
  * gate. Returns true only for the first caller (hook timer or extension poll).
@@ -196,6 +225,7 @@ function claimCompletion(
 module.exports = {
   markPending,
   clearPending,
+  clearPendingIfNotPromptable,
   claimNotification,
   claimCompletion,
   readState,

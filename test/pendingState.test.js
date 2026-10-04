@@ -9,7 +9,7 @@ const {
   isPromptableGate,
 } = require('../out/pendingState');
 
-const WAITING_AFTER = 45000;
+const WAITING_AFTER = 8000;
 const MAX_AGE = 30 * 60 * 1000;
 
 /** A shell gate: the kind Cursor really can stop and ask about. */
@@ -77,23 +77,30 @@ function runWatcher(state, { from, to, stepMs = 5000, ...opts } = {}) {
   return sent;
 }
 
-test('an auto-run command that Cursor never asked about stays silent', () => {
-  // The reported bug. Cursor fires beforeShellExecution whether or not you are
-  // asked, so a command the agent ran on its own used to produce a "waiting for
-  // your response" push as soon as it outlived the old two-second window.
+test('uncorroborated shell notifies even while the user is present', () => {
+  // Presence used to veto forever if you kept Cursor focused — real Run/Skip
+  // prompts then never reached the phone. waitingAfterMs is the filter now.
+  const state = { conv1: gate({ ts: 0, command: 'npm run build' }) };
+  const sent = runWatcher(state, {
+    from: 0,
+    to: 120000,
+    shellActivityAvailable: false,
+    allowUncorroboratedShell: true,
+    userPresent: true,
+  });
+  assert.strictEqual(sent, 1);
+});
+
+test('uncorroborated shell can still be opted out', () => {
   const state = { conv1: gate({ ts: 0, command: 'npm run build' }) };
   const sent = runWatcher(state, {
     from: 0,
     to: 10 * 60 * 1000,
-    // Cursor's agent terminal commonly reports no shell integration at all, and
-    // then "nothing is running" is what we hear for every command.
     shellActivityAvailable: false,
+    allowUncorroboratedShell: false,
+    userPresent: false,
   });
-  assert.strictEqual(
-    sent,
-    0,
-    'with nothing to corroborate a prompt, a long-running command is just work'
-  );
+  assert.strictEqual(sent, 0);
 });
 
 test('a slow read or search is never a permission prompt', () => {
@@ -119,48 +126,10 @@ test('notifies when a shell prompt is corroborated by an idle terminal', () => {
   assert.deepStrictEqual(decide(state, WAITING_AFTER).notify, ['conv1']);
 });
 
-test('an unconfirmed shell wait can be opted into, and still respects presence', () => {
-  const away = { conv1: gate({ ts: 0 }) };
-  assert.strictEqual(
-    runWatcher(away, {
-      from: 0,
-      to: 120000,
-      shellActivityAvailable: false,
-      allowUncorroboratedShell: true,
-      userPresent: false,
-    }),
-    1,
-    'users who never auto-run can ask for the alert anyway'
-  );
-
-  const watching = { conv1: gate({ ts: 0 }) };
-  assert.strictEqual(
-    runWatcher(watching, {
-      from: 0,
-      to: 120000,
-      shellActivityAvailable: false,
-      allowUncorroboratedShell: true,
-      userPresent: true,
-    }),
-    0,
-    'even opted in, do not buzz someone who is looking at the screen'
-  );
-});
-
-test('stays quiet while the user is sitting at the window', () => {
-  // Whatever the gate is, the person is right there: either nothing is being
-  // asked, or the prompt is on the screen in front of them.
+test('MCP gates notify after the wait window even when present', () => {
   const state = { conv1: mcpGate({ ts: 0 }) };
-  const sent = runWatcher(state, { from: 0, to: 10 * 60 * 1000, userPresent: true });
-  assert.strictEqual(sent, 0);
-});
-
-test('presence does not veto hard evidence of a prompt', () => {
-  // Terminal activity reports here and says nothing is running, so this really is
-  // a prompt and the alert is truthful even with the window focused.
-  const state = { conv1: gate({ ts: 0 }) };
-  const decision = decide(state, WAITING_AFTER, { userPresent: true });
-  assert.deepStrictEqual(decision.notify, ['conv1']);
+  const sent = runWatcher(state, { from: 0, to: 120000, userPresent: true });
+  assert.strictEqual(sent, 1);
 });
 
 test('stays quiet while the command is actually executing', () => {
@@ -184,17 +153,9 @@ test('notifies once execution corroboration stops matching', () => {
   assert.strictEqual(sent, 1);
 });
 
-test('an MCP gate needs the user to be away, not a terminal signal', () => {
-  // Terminal activity cannot say anything about an MCP call, so presence is the
-  // only guard — which is why the window is what decides here.
-  const present = { conv1: mcpGate({ ts: 0 }) };
-  assert.strictEqual(
-    runWatcher(present, { from: 0, to: 120000, userPresent: true }),
-    0
-  );
-
-  const away = { conv1: mcpGate({ ts: 0 }) };
-  assert.strictEqual(runWatcher(away, { from: 0, to: 120000, userPresent: false }), 1);
+test('an MCP gate notifies from age alone (no terminal signal needed)', () => {
+  const state = { conv1: mcpGate({ ts: 0 }) };
+  assert.strictEqual(runWatcher(state, { from: 0, to: 120000 }), 1);
 });
 
 test('never notifies twice while the prompt stays open', () => {

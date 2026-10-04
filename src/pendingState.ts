@@ -174,11 +174,11 @@ export function decidePending(
       if (isShellGate(entry) && opts.allowUncorroboratedShell !== true) {
         continue;
       }
-      // Otherwise age is all we have, so at least require that nobody is sitting
-      // in front of the window we would be telling them to come back to.
-      if (opts.userPresent === true) {
-        continue;
-      }
+      // Presence used to veto here, but moving the mouse / focusing Cursor while
+      // a Run/Skip prompt sat open meant many real waits never reached the phone.
+      // waitingAfterMs + isExecuting are the spam filters; presence only informs
+      // the status bar now (opts.userPresent kept for API compatibility).
+      void opts.userPresent;
     }
 
     notify.push(id);

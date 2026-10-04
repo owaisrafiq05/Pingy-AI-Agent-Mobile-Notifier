@@ -154,16 +154,12 @@ evidence actually points at a prompt:
 
 - the gate is one Cursor prompts about (a shell command or an MCP call — never a
   read, search or edit, which Cursor applies itself)
-- it has stayed open longer than `cursorping.waitingAfterMs` (default 45s), which
-  is well past any ordinary auto-run tool call
-- and either terminal activity confirms nothing is running, or you are not at the
-  Cursor window
+- it has stayed open longer than `cursorping.waitingAfterMs` (default 8s)
+- and the command is not demonstrably executing in a terminal
 
-That means a command Cursor auto-ran never pings you, at the cost of occasionally
-missing a real prompt. Two knobs if you want it tuned differently:
-`cursorping.waitingAfterMs` to change the patience, and
-`cursorping.alertOnUnconfirmedShellWaits` to alert on shell waits that terminal
-activity cannot confirm (useful if you never use auto-run).
+Long auto-runs can still look like a prompt when Cursor's agent terminal reports
+no shell activity. Prefer silence over occasional false waits? Set
+`cursorping.alertOnUnconfirmedShellWaits` to `false`, or raise `waitingAfterMs`.
 
 ## Supported agents
 

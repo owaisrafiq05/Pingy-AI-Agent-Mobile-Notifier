@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   getAllowUncorroboratedShell,
   getPendingMaxAgeMs,
+  getPresenceIdleMs,
   getServerUrl,
   getWaitingAfterMs,
   getWatcherIntervalMs,
@@ -181,7 +182,10 @@ async function checkStalePending(context: vscode.ExtensionContext): Promise<void
     maxAgeMs: getPendingMaxAgeMs(),
     isExecuting: terminalActivity?.isExecuting,
     shellActivityAvailable: terminalActivity?.isReporting === true,
-    userPresent: userPresence?.isPresent(waitingAfterMs) === true,
+    // Presence uses a short idle window so a Run/Skip left on screen still
+    // reaches the phone once you stop touching the keyboard — not only after
+    // the full waitingAfterMs of "present".
+    userPresent: userPresence?.isPresent(getPresenceIdleMs()) === true,
     allowUncorroboratedShell: getAllowUncorroboratedShell(),
   };
 

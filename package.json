@@ -2,7 +2,7 @@
   "name": "cursorping",
   "displayName": "Pingy",
   "description": "Pingy — Get notified when your AI coding agent needs you. Works with Cursor and Claude Code. Your AI coding agent's little notification buddy.",
-  "version": "0.4.2",
+  "version": "0.4.4",
   "publisher": "OwaisRafiq",
   "author": {
     "name": "Owais Rafiq",
@@ -58,13 +58,18 @@
         },
         "cursorping.waitingAfterMs": {
           "type": "number",
-          "default": 45000,
-          "description": "Cursor only: how long a shell or MCP gate must stay open before it counts as Cursor waiting for your approval. Cursor fires its gate events whether or not you are asked, so a short window turns ordinary auto-run commands into false \"waiting\" alerts. Lower it only if you never use auto-run."
+          "default": 8000,
+          "description": "Cursor only: how long a shell or MCP gate must stay open before it counts as Cursor waiting for your approval. Cursor fires its gate events whether or not you are asked, so a very short window turns ordinary auto-run commands into false \"waiting\" alerts."
         },
         "cursorping.alertOnUnconfirmedShellWaits": {
           "type": "boolean",
-          "default": false,
-          "description": "Cursor only: send a waiting alert for a shell command even when terminal activity cannot confirm the command is not running. Off by default because a long auto-run command (install, build, test suite) looks exactly like a pending approval. Turn it on if you never use auto-run and would rather have the alert."
+          "default": true,
+          "description": "Cursor only: send a waiting alert for a shell command even when terminal activity cannot confirm the command is not running. On by default because Cursor's agent terminal usually reports no shell activity — turning this off means real Run/Skip prompts never reach your phone. Turn it off only if you prefer silence over occasional false waits on long auto-runs."
+        },
+        "cursorping.presenceIdleMs": {
+          "type": "number",
+          "default": 8000,
+          "description": "Cursor only: how long without mouse/keyboard before Pingy treats you as away. Waiting alerts are suppressed while you are present (the prompt is on screen); after this idle they can fire."
         },
         "cursorping.pendingTimeoutMs": {
           "type": "number",

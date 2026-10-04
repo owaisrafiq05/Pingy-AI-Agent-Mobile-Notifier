@@ -13,8 +13,15 @@ export interface CursorPingConfig {
 const DEFAULT_SERVER = 'https://ntfy.sh';
 /** @deprecated Superseded by DEFAULT_WAITING_AFTER; still written to hook configs for older installs. */
 const DEFAULT_TIMEOUT = 2000;
-/** Longer than any ordinary auto-run tool call, far shorter than a human's patience. */
-const DEFAULT_WAITING_AFTER = 45000;
+/**
+ * Long enough that a quick auto-run finishes before we consider "waiting", short
+ * enough that a real Run/Skip prompt reaches the phone while it still matters.
+ * Cursor's agent terminal often never reports shell activity, so this — not
+ * terminal silence — is the main filter against false waiting pushes.
+ */
+const DEFAULT_WAITING_AFTER = 8000;
+/** Stop treating the user as "at the keyboard" after this much idle time. */
+const DEFAULT_PRESENCE_IDLE = 8000;
 /** One "your agent needs you" push covers a session for this long. */
 const DEFAULT_WAITING_REPING = 5 * 60 * 1000;
 
@@ -63,15 +70,24 @@ export function getWaitingRepingMs(): number {
 /**
  * Whether to alert on Cursor shell gates that terminal activity cannot vouch for.
  *
- * Off by default. Shell commands are the tool calls that legitimately run for
- * minutes, so without a terminal signal an open gate is far more likely to be an
- * auto-run in progress than a prompt waiting on you.
+ * On by default: Cursor's agent terminal usually never reports shell integration,
+ * so "off" meant real Run/Skip prompts never reached the phone. Long auto-runs
+ * are filtered by `waitingAfterMs` and by suppressing while the user is present.
+ * Set to false only if you prefer silence over occasional false waits.
  */
 export function getAllowUncorroboratedShell(): boolean {
   return (
     vscode.workspace
       .getConfiguration('cursorping')
-      .get<boolean>('alertOnUnconfirmedShellWaits') ?? false
+      .get<boolean>('alertOnUnconfirmedShellWaits') ?? true
+  );
+}
+
+/** How long without mouse/keyboard before we stop treating the user as present. */
+export function getPresenceIdleMs(): number {
+  return (
+    vscode.workspace.getConfiguration('cursorping').get<number>('presenceIdleMs') ??
+    DEFAULT_PRESENCE_IDLE
   );
 }
 
